@@ -1,0 +1,324 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --border: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply text-gray-900 font-sans antialiased;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 25%, #cbd5e1 50%, #94a3b8 75%, #64748b 100%);
+    background-attachment: fixed;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      radial-gradient(circle at 20% 20%, rgba(0, 101, 100, 0.1) 0%, transparent 70%),
+      radial-gradient(circle at 80% 80%, rgba(30, 58, 95, 0.1) 0%, transparent 70%),
+      radial-gradient(circle at 40% 40%, rgba(0, 101, 100, 0.05) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-cathay-navy;
+    font-weight: 600;
+  }
+
+  /* Scrollbar Styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.1);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #006564, #004d4c);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #004d4c, #003d3c);
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cathay-teal focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:scale-[1.02] active:scale-[0.98];
+  }
+  
+  .btn-primary {
+    @apply btn text-white shadow-lg hover:shadow-2xl relative overflow-hidden;
+    background: linear-gradient(135deg, #006564 0%, #004d4c 50%, #003d3c 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .btn-primary::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+  }
+
+  .btn-primary:hover::before {
+    left: 100%;
+  }
+  
+  .btn-secondary {
+    @apply btn text-cathay-navy shadow-md hover:shadow-xl backdrop-blur-md;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 101, 100, 0.2);
+  }
+  
+  .btn-outline {
+    @apply btn text-cathay-teal shadow-md hover:shadow-xl backdrop-blur-md hover:text-white;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(0, 101, 100, 0.3);
+  }
+
+  .btn-outline:hover {
+    background: linear-gradient(135deg, #006564 0%, #004d4c 100%);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  
+  .btn-ghost {
+    @apply btn text-cathay-navy hover:backdrop-blur-md;
+    background: transparent;
+  }
+
+  .btn-ghost:hover {
+    background: rgba(107, 114, 128, 0.1);
+  }
+  
+  .card {
+    @apply rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-500 backdrop-blur-xl transform hover:-translate-y-2;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(20px);
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 101, 100, 0.5), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .card:hover::before {
+    opacity: 1;
+  }
+
+  .card-premium {
+    @apply card shadow-2xl hover:shadow-3xl transform hover:-translate-y-3 hover:scale-[1.02] relative overflow-hidden;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 50%, rgba(241, 245, 249, 0.9) 100%);
+    border: 1px solid rgba(0, 101, 100, 0.2);
+  }
+
+  .card-premium::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(0, 101, 100, 0.1) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+  }
+
+  .card-premium:hover::after {
+    opacity: 1;
+  }
+  
+  .input {
+    @apply flex h-11 w-full rounded-lg border border-cathay-grey-300 bg-white px-4 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-cathay-grey-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cathay-teal focus-visible:ring-offset-2 focus-visible:border-cathay-teal disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200;
+  }
+  
+  .nav-link {
+    @apply flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 relative overflow-hidden;
+  }
+  
+  .nav-link-active {
+    @apply nav-link bg-gradient-to-r from-cathay-teal to-cathay-teal-600 text-white shadow-lg;
+  }
+  
+  .nav-link-inactive {
+    @apply nav-link text-cathay-grey-300 hover:bg-cathay-grey-700 hover:text-white hover:shadow-md;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-success {
+    @apply status-badge bg-green-100 text-green-800;
+  }
+
+  .status-warning {
+    @apply status-badge bg-yellow-100 text-yellow-800;
+  }
+
+  .status-error {
+    @apply status-badge bg-red-100 text-red-800;
+  }
+
+  .status-info {
+    @apply status-badge bg-blue-100 text-blue-800;
+  }
+
+  .stat-card {
+    @apply card-premium p-6 text-center transform hover:scale-105 transition-all duration-500 relative;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .stat-card:nth-child(2) {
+    animation-delay: -2s;
+  }
+
+  .stat-card:nth-child(3) {
+    animation-delay: -4s;
+  }
+
+  .stat-card:nth-child(4) {
+    animation-delay: -1s;
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #006564 0%, #1e3a5f 50%, #004d4c 100%);
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: gradient-shift 3s ease infinite;
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  .loading-shimmer {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes pulse-glow {
+    from {
+      box-shadow: 0 0 20px rgba(0, 101, 100, 0.3);
+    }
+    to {
+      box-shadow: 0 0 40px rgba(0, 101, 100, 0.6), 0 0 60px rgba(0, 101, 100, 0.3);
+    }
+  }
+
+  .icon-container {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .icon-container::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(from 0deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: icon-rotate 4s linear infinite;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .icon-container:hover::before {
+    opacity: 1;
+  }
+
+  @keyframes icon-rotate {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  .nav-item {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .nav-item::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #006564, #1e3a5f);
+    transition: width 0.3s ease;
+  }
+
+  .nav-item:hover::after {
+    width: 100%;
+  }
+}
