@@ -153,10 +153,10 @@ const Dashboard: React.FC = () => {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="stat-card pulse-glow">
+        <div className="stat-card">
           <div className="flex items-center justify-center mb-4">
-            <div className="icon-container p-4 bg-gradient-to-r from-cathay-teal via-cathay-teal-600 to-cathay-teal-dark rounded-full shadow-xl">
-              <Package className="h-10 w-10 text-white relative z-10" />
+            <div className="p-4 bg-gradient-to-r from-cathay-teal to-cathay-teal-600 rounded-full shadow-lg">
+              <Package className="h-8 w-8 text-white" />
             </div>
           </div>
           <div className="space-y-3">
@@ -164,8 +164,7 @@ const Dashboard: React.FC = () => {
             <h3 className="text-4xl font-bold gradient-text">
               {stats.total_packages.toLocaleString()}
             </h3>
-            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 shadow-sm">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
               +{stats.packages_this_month.toLocaleString()} this month
             </div>
           </div>
@@ -173,8 +172,8 @@ const Dashboard: React.FC = () => {
 
         <div className="stat-card">
           <div className="flex items-center justify-center mb-4">
-            <div className="icon-container p-4 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 rounded-full shadow-xl">
-              <DollarSign className="h-10 w-10 text-white relative z-10" />
+            <div className="p-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-lg">
+              <DollarSign className="h-8 w-8 text-white" />
             </div>
           </div>
           <div className="space-y-3">
@@ -182,8 +181,8 @@ const Dashboard: React.FC = () => {
             <h3 className="text-4xl font-bold gradient-text">
               {formatCurrency(stats.total_tariff_amount)}
             </h3>
-            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 shadow-sm">
-              <TrendingUp className="h-3 w-3 mr-2 animate-bounce" />
+            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+              <TrendingUp className="h-3 w-3 mr-2" />
               +10.4% from last month
             </div>
           </div>
@@ -191,8 +190,8 @@ const Dashboard: React.FC = () => {
 
         <div className="stat-card">
           <div className="flex items-center justify-center mb-4">
-            <div className="icon-container p-4 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full shadow-xl">
-              <FileText className="h-10 w-10 text-white relative z-10" />
+            <div className="p-4 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full shadow-lg">
+              <FileText className="h-8 w-8 text-white" />
             </div>
           </div>
           <div className="space-y-3">
@@ -200,8 +199,7 @@ const Dashboard: React.FC = () => {
             <h3 className="text-4xl font-bold gradient-text">
               {stats.pending_cbp_reports}
             </h3>
-            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-800 shadow-sm">
-              <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
               Ready for submission
             </div>
           </div>
@@ -209,8 +207,8 @@ const Dashboard: React.FC = () => {
 
         <div className="stat-card">
           <div className="flex items-center justify-center mb-4">
-            <div className="icon-container p-4 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 rounded-full shadow-xl">
-              <Scale className="h-10 w-10 text-white relative z-10" />
+            <div className="p-4 bg-gradient-to-r from-orange-500 to-red-500 rounded-full shadow-lg">
+              <Scale className="h-8 w-8 text-white" />
             </div>
           </div>
           <div className="space-y-3">
@@ -218,8 +216,7 @@ const Dashboard: React.FC = () => {
             <h3 className="text-4xl font-bold gradient-text">
               {stats.unmatched_shipments}
             </h3>
-            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-yellow-100 to-orange-100 text-orange-800 shadow-sm">
-              <div className="w-2 h-2 bg-orange-500 rounded-full mr-2 animate-pulse"></div>
+            <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">
               Requires reconciliation
             </div>
           </div>

@@ -54,7 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           }`} 
           onClick={() => setSidebarOpen(false)} 
         />
-        <div className={`relative flex-1 flex flex-col max-w-xs w-full bg-cathay-navy transform transition-transform duration-300 ease-in-out ${
+        <div className={`relative flex-1 flex flex-col max-w-xs w-full bg-gradient-to-b from-cathay-teal to-cathay-teal-700 transform transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}>
           <div className="absolute top-0 right-0 -mr-12 pt-2">
@@ -175,16 +175,16 @@ interface SidebarContentProps {
 
 const SidebarContent: React.FC<SidebarContentProps> = ({ navigation, isActive }) => {
   return (
-    <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-cathay-navy px-6 pb-4">
+    <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-gradient-to-b from-cathay-teal to-cathay-teal-700 px-6 pb-4">
       <div className="flex h-16 shrink-0 items-center">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2">
-            <Plane className="h-8 w-8 text-cathay-teal" />
-            <Mail className="h-6 w-6 text-white" />
+            <Plane className="h-8 w-8 text-white" />
+            <Mail className="h-6 w-6 text-white/90" />
           </div>
           <div>
             <h2 className="text-white text-lg font-semibold">Cathay Cargo</h2>
-            <p className="text-cathay-teal text-xs">US Tariff Management</p>
+            <p className="text-white/80 text-xs">US Tariff Management</p>
           </div>
         </div>
       </div>
