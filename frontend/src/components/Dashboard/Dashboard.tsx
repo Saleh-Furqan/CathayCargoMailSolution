@@ -40,15 +40,15 @@ interface StatCardProps {
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, change, changeType, icon: Icon, color }) => (
   <div className="card p-6">
-    <div className="flex items-center">
-      <div className={`p-3 rounded-lg ${color}`}>
+    <div className="flex items-center space-x-4">
+      <div className={`p-3 rounded-lg ${color} flex-shrink-0`}>
         <Icon className="h-6 w-6 text-white" />
       </div>
-      <div className="ml-4 flex-1">
-        <p className="text-sm font-medium text-gray-600">{title}</p>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <div className="flex-1 min-w-0 space-y-1">
+        <p className="text-sm font-medium text-gray-600 leading-none">{title}</p>
+        <p className="text-2xl font-bold text-gray-900 leading-none">{value}</p>
         {change && (
-          <p className={`text-sm ${
+          <p className={`text-sm leading-none ${
             changeType === 'positive' ? 'text-green-600' :
             changeType === 'negative' ? 'text-red-600' : 'text-gray-600'
           }`}>
@@ -135,30 +135,30 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
   if (!analytics) {
     return (
-      <div className="text-center py-12">
-        <Package className="mx-auto h-12 w-12 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No data to analyze</h3>
-        <p className="mt-1 text-sm text-gray-500">Upload and process data to see analytics dashboard.</p>
+      <div className="text-center py-16">
+        <Package className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">No data to analyze</h3>
+        <p className="text-sm text-gray-500">Upload and process data to see analytics dashboard.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Business Analytics Dashboard</h2>
-          <p className="text-gray-600">Insights from your processed cargo mail data</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 leading-tight">Business Analytics Dashboard</h2>
+          <p className="text-gray-600 leading-relaxed">Insights from your processed cargo mail data</p>
         </div>
-        <div className="flex items-center space-x-2 text-sm text-gray-500">
+        <div className="flex items-center space-x-2 text-sm text-gray-500 flex-shrink-0">
           <Clock className="h-4 w-4" />
           <span>Last updated: {new Date().toLocaleTimeString()}</span>
         </div>
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard
           title="Total Packages"
           value={analytics.totalPackages.toLocaleString()}
@@ -186,7 +186,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       </div>
 
       {/* Secondary Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         <StatCard
           title="Average Package Weight"
           value={`${analytics.averageWeight} kg`}
@@ -209,10 +209,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
       {/* Processing Status */}
       {processResult && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <div className="card p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className={`p-2 rounded-lg ${
+            <div className="flex items-center space-x-4 mb-4">
+              <div className={`p-3 rounded-lg flex-shrink-0 ${
                 processResult.results.china_post.available ? 'bg-green-500' : 'bg-red-500'
               }`}>
                 {processResult.results.china_post.available ? 
@@ -220,27 +220,27 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
                   <AlertTriangle className="h-5 w-5 text-white" />
                 }
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">China Post Processing</h3>
+              <h3 className="text-lg font-semibold text-gray-900 leading-tight">China Post Processing</h3>
             </div>
-            <div className="space-y-2">
-              <p className="text-sm text-gray-600">
-                Status: <span className={`font-medium ${
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Status: <span className={`font-semibold ${
                   processResult.results.china_post.available ? 'text-green-600' : 'text-red-600'
                 }`}>
                   {processResult.results.china_post.available ? 'Ready' : 'Not Available'}
                 </span>
               </p>
               {processResult.results.china_post.records_processed && (
-                <p className="text-sm text-gray-600">
-                  Records: <span className="font-medium">{processResult.results.china_post.records_processed}</span>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  Records: <span className="font-semibold text-gray-900">{processResult.results.china_post.records_processed}</span>
                 </p>
               )}
             </div>
           </div>
 
           <div className="card p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className={`p-2 rounded-lg ${
+            <div className="flex items-center space-x-4 mb-4">
+              <div className={`p-3 rounded-lg flex-shrink-0 ${
                 processResult.results.cbp.available ? 'bg-green-500' : 'bg-red-500'
               }`}>
                 {processResult.results.cbp.available ? 
@@ -248,19 +248,19 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
                   <AlertTriangle className="h-5 w-5 text-white" />
                 }
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">CBP Processing</h3>
+              <h3 className="text-lg font-semibold text-gray-900 leading-tight">CBP Processing</h3>
             </div>
-            <div className="space-y-2">
-              <p className="text-sm text-gray-600">
-                Status: <span className={`font-medium ${
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Status: <span className={`font-semibold ${
                   processResult.results.cbp.available ? 'text-green-600' : 'text-red-600'
                 }`}>
                   {processResult.results.cbp.available ? 'Ready' : 'Not Available'}
                 </span>
               </p>
               {processResult.results.cbp.records_processed && (
-                <p className="text-sm text-gray-600">
-                  Records: <span className="font-medium">{processResult.results.cbp.records_processed}</span>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  Records: <span className="font-semibold text-gray-900">{processResult.results.cbp.records_processed}</span>
                 </p>
               )}
             </div>
@@ -269,10 +269,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       )}
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Airline Distribution */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Package Distribution by Airline</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Package Distribution by Airline</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={analytics.airlineData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -286,7 +286,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
         {/* Destination Distribution */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Packages by Destination</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Packages by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -310,7 +310,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
         {/* Weight Analysis */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Weight Distribution by Airline</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Weight Distribution by Airline</h3>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={analytics.airlineData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -324,7 +324,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
         {/* Rate Type Analysis */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Rate Type Distribution</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Rate Type Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -349,7 +349,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
       {/* Financial Analysis */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Analysis by Airline</h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Financial Analysis by Airline</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={analytics.airlineData}>
             <CartesianGrid strokeDasharray="3 3" />

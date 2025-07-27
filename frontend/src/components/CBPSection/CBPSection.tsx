@@ -116,51 +116,101 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
       )}
 
       {/* Analytics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-blue-500">
+      <div className="flex flex-wrap gap-4 sm:gap-6">
+        {/* Total Declared Value - Dynamic width for large currency amounts */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.totalValue > 999999999 ? 'min-w-[320px]' :
+          analytics.totalValue > 99999999 ? 'min-w-[300px]' :
+          analytics.totalValue > 9999999 ? 'min-w-[280px]' :
+          analytics.totalValue > 999999 ? 'min-w-[250px]' :
+          analytics.totalValue > 99999 ? 'min-w-[220px]' :
+          analytics.totalValue > 9999 ? 'min-w-[200px]' : 'min-w-[180px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-blue-500 flex-shrink-0">
               <DollarSign className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Declared Value</p>
-              <p className="text-2xl font-bold text-gray-900">${analytics.totalValue.toLocaleString()}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Declared Value</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.totalValue.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-green-500">
+        {/* Total Packages - Dynamic width */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.totalPackages > 999999 ? 'min-w-[200px]' :
+          analytics.totalPackages > 99999 ? 'min-w-[180px]' :
+          analytics.totalPackages > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-green-500 flex-shrink-0">
               <Package className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Packages</p>
-              <p className="text-2xl font-bold text-gray-900">{analytics.totalPackages.toLocaleString()}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Packages</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{analytics.totalPackages.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-purple-500">
+        {/* Unique Carriers - Compact for small numbers */}
+        <div className="card p-6 flex-shrink-0 min-w-[120px]">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-purple-500 flex-shrink-0">
               <Plane className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Unique Carriers</p>
-              <p className="text-2xl font-bold text-gray-900">{analytics.uniqueCarriers}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Carriers</p>
+              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.uniqueCarriers}</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-orange-500">
+        {/* Arrival Ports - Compact for small numbers */}
+        <div className="card p-6 flex-shrink-0 min-w-[120px]">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-orange-500 flex-shrink-0">
               <MapPin className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Arrival Ports</p>
-              <p className="text-2xl font-bold text-gray-900">{analytics.uniquePorts}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Ports</p>
+              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.uniquePorts}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Average Value - Dynamic width for currency */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.averageValue > 9999999 ? 'min-w-[240px]' :
+          analytics.averageValue > 999999 ? 'min-w-[220px]' :
+          analytics.averageValue > 99999 ? 'min-w-[200px]' :
+          analytics.averageValue > 9999 ? 'min-w-[180px]' : 'min-w-[160px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-teal-500 flex-shrink-0">
+              <DollarSign className="h-6 w-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Average Value</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.averageValue.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Records Processed - Dynamic width */}
+        <div className={`card p-6 flex-shrink-0 ${
+          cbpData.length > 999999 ? 'min-w-[200px]' :
+          cbpData.length > 99999 ? 'min-w-[180px]' :
+          cbpData.length > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-indigo-500 flex-shrink-0">
+              <Package className="h-6 w-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Records</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{cbpData.length.toLocaleString()}</p>
             </div>
           </div>
         </div>
