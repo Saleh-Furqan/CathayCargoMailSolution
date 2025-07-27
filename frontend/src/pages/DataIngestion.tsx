@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   Upload,
@@ -9,31 +9,134 @@ import {
   Download,
   Eye,
   RefreshCw,
-  Database,
-  GitMerge,
-  Package,
+  FileSpreadsheet,
+  BarChart3,
+  Building,
+  Plane,
 } from 'lucide-react';
 import { DataFile } from '../types';
+import { apiService, readExcelFile, downloadBlob, ProcessDataResponse, ColumnsResponse } from '../services/api';
+import Dashboard from '../components/Dashboard/Dashboard';
+import CBPSection from '../components/CBPSection/CBPSection';
+import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
+import Notification from '../components/Notification/Notification';
 
 const DataIngestion: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<DataFile[]>([]);
   const [processingFile, setProcessingFile] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<DataFile | null>(null);
+  const [processedData, setProcessedData] = useState<any[]>([]);
+  const [processResult, setProcessResult] = useState<ProcessDataResponse | null>(null);
+  const [columns, setColumns] = useState<ColumnsResponse | null>(null);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState<'upload' | 'dashboard' | 'cbp' | 'china-post'>('upload');
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+  } | null>(null);
+
+  useEffect(() => {
+    const checkBackendConnection = async () => {
+      try {
+        await apiService.healthCheck();
+        const columnsData = await apiService.getColumns();
+        setColumns(columnsData);
+        setIsBackendConnected(true);
+      } catch (error) {
+        console.error('Backend connection failed:', error);
+        setIsBackendConnected(false);
+      }
+    };
+
+    checkBackendConnection();
+  }, []);
+
+  const processFileData = async (file: File, fileId: string) => {
+    try {
+      console.log('Starting to process file:', file.name, 'Size:', file.size, 'bytes');
+      setProcessingFile(fileId);
+      setUploadedFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, status: 'processing' as const } : f
+      ));
+
+      // Read Excel file
+      console.log('Reading Excel file...');
+      const data = await readExcelFile(file);
+      console.log('Excel data loaded:', data.length, 'rows');
+      setProcessedData(data);
+
+      // Process data with backend
+      console.log('Sending data to backend...');
+      const result = await apiService.processData(data);
+      console.log('Backend processing result:', result);
+      setProcessResult(result);
+
+      // Update file status
+      setUploadedFiles(prev => prev.map(f => 
+        f.id === fileId 
+          ? {
+              ...f,
+              status: 'completed' as const,
+              total_records: result.total_records,
+              processed_records: result.total_records,
+              error_records: 0,
+              validation_errors: []
+            }
+          : f
+      ));
+
+      // Show success notification
+      setNotification({
+        message: `Successfully processed ${result.total_records} records!`,
+        type: 'success'
+      });
+
+      // Auto-switch to dashboard after successful processing
+      setTimeout(() => {
+        setActiveTab('dashboard');
+      }, 1000);
+
+    } catch (error) {
+      console.error('File processing error:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        error
+      });
+
+      // Show error notification
+      setNotification({
+        message: `Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
+
+      setUploadedFiles(prev => prev.map(f => 
+        f.id === fileId 
+          ? {
+              ...f,
+              status: 'failed' as const,
+              validation_errors: [
+                {
+                  row_number: 0,
+                  field: 'file',
+                  error_type: 'processing_error',
+                  message: error instanceof Error ? error.message : 'Unknown error occurred'
+                }
+              ]
+            }
+          : f
+      ));
+    } finally {
+      setProcessingFile(null);
+    }
+  };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     acceptedFiles.forEach((file) => {
-      // Determine file type based on filename
-      let fileType: 'cardit' | 'awb_master' | 'event_data' = 'cardit';
-      if (file.name.toLowerCase().includes('awb') || file.name.toLowerCase().includes('master')) {
-        fileType = 'awb_master';
-      } else if (file.name.toLowerCase().includes('event')) {
-        fileType = 'event_data';
-      }
-
       const newFile: DataFile = {
         id: Math.random().toString(36).substr(2, 9),
         filename: file.name,
-        file_type: fileType,
+        file_type: 'template_data',
         upload_date: new Date().toISOString(),
         total_records: 0,
         processed_records: 0,
@@ -44,47 +147,8 @@ const DataIngestion: React.FC = () => {
       
       setUploadedFiles(prev => [...prev, newFile]);
       
-      // Simulate file processing
-      setTimeout(() => {
-        setProcessingFile(newFile.id);
-        setUploadedFiles(prev => prev.map(f => 
-          f.id === newFile.id ? { ...f, status: 'processing' as const } : f
-        ));
-        
-        setTimeout(() => {
-          const totalRecords = Math.floor(Math.random() * 1000) + 100;
-          const errorRecords = Math.floor(Math.random() * 50);
-          const processedRecords = totalRecords - errorRecords;
-          
-          setUploadedFiles(prev => prev.map(f => 
-            f.id === newFile.id 
-              ? {
-                  ...f,
-                  status: errorRecords > 0 ? 'partial_success' as const : 'completed' as const,
-                  total_records: totalRecords,
-                  processed_records: processedRecords,
-                  error_records: errorRecords,
-                  validation_errors: errorRecords > 0 ? [
-                    {
-                      row_number: 15,
-                      field: 'declared_value',
-                      error_type: 'invalid_format',
-                      message: 'Invalid currency format',
-                      value: 'ABC'
-                    },
-                    {
-                      row_number: 23,
-                      field: 'receptacle_id',
-                      error_type: 'missing',
-                      message: 'Receptacle ID is required'
-                    }
-                  ] : []
-                }
-              : f
-          ));
-          setProcessingFile(null);
-        }, 3000);
-      }, 1000);
+      // Process file immediately
+      processFileData(file, newFile.id);
     });
   }, []);
 
@@ -98,30 +162,12 @@ const DataIngestion: React.FC = () => {
     multiple: true
   });
 
-  const getFileTypeIcon = (fileType: string) => {
-    switch (fileType) {
-      case 'cardit':
-        return <Package className="h-5 w-5 text-blue-600" />;
-      case 'awb_master':
-        return <Database className="h-5 w-5 text-green-600" />;
-      case 'event_data':
-        return <GitMerge className="h-5 w-5 text-purple-600" />;
-      default:
-        return <FileText className="h-5 w-5 text-gray-600" />;
-    }
+  const getFileTypeIcon = () => {
+    return <FileSpreadsheet className="h-5 w-5 text-blue-600" />;
   };
 
-  const getFileTypeLabel = (fileType: string) => {
-    switch (fileType) {
-      case 'cardit':
-        return 'CARDIT Data';
-      case 'awb_master':
-        return 'AWB Master';
-      case 'event_data':
-        return 'Event Data';
-      default:
-        return 'Unknown';
-    }
+  const getFileTypeLabel = () => {
+    return 'Template Data';
   };
 
   const getStatusColor = (status: string) => {
@@ -132,8 +178,6 @@ const DataIngestion: React.FC = () => {
         return 'text-blue-600 bg-blue-100';
       case 'failed':
         return 'text-red-600 bg-red-100';
-      case 'partial_success':
-        return 'text-yellow-600 bg-yellow-100';
       default:
         return 'text-gray-600 bg-gray-100';
     }
@@ -146,7 +190,6 @@ const DataIngestion: React.FC = () => {
       case 'processing':
         return <RefreshCw className="h-4 w-4 animate-spin" />;
       case 'failed':
-      case 'partial_success':
         return <AlertCircle className="h-4 w-4" />;
       default:
         return <FileText className="h-4 w-4" />;
@@ -170,31 +213,104 @@ const DataIngestion: React.FC = () => {
     }
   };
 
+  const handleGenerateChinaPost = async () => {
+    if (!processedData.length) {
+      alert('Please upload and process data first');
+      return;
+    }
+
+    try {
+      const blob = await apiService.generateChinaPostFile(processedData);
+      downloadBlob(blob, `china_post_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+    } catch (error) {
+      console.error('Error generating China Post file:', error);
+      alert('Error generating China Post file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
+  const handleGenerateCBP = async () => {
+    if (!processedData.length) {
+      alert('Please upload and process data first');
+      return;
+    }
+
+    try {
+      const blob = await apiService.generateCBPFile(processedData);
+      downloadBlob(blob, `cbp_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+    } catch (error) {
+      console.error('Error generating CBP file:', error);
+      alert('Error generating CBP file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
+  const tabs = [
+    { id: 'upload', name: 'Data Upload', icon: Upload },
+    { id: 'dashboard', name: 'Analytics', icon: BarChart3, disabled: !processedData.length },
+    { id: 'cbp', name: 'CBP Section', icon: Building, disabled: !processResult?.results.cbp.available },
+    { id: 'china-post', name: 'China Post', icon: Plane, disabled: !processResult?.results.china_post.available },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Data Ingestion</h1>
-          <p className="mt-1 text-gray-600">
-            Upload and process CARDIT, AWB Master, and Event data files
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">Cargo Mail Processing System</h1>
+          <div className="mt-1 flex items-center space-x-4">
+            <p className="text-gray-600">
+              Complete solution for China Post and CBP data processing with analytics
+            </p>
+            <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium ${
+              isBackendConnected 
+                ? 'bg-green-100 text-green-800' 
+                : 'bg-red-100 text-red-800'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                isBackendConnected ? 'bg-green-500' : 'bg-red-500'
+              }`}></div>
+              <span>{isBackendConnected ? 'Backend Connected' : 'Backend Disconnected'}</span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center space-x-3">
-          <button className="btn-secondary px-4 py-2">
-            <Download className="h-4 w-4 mr-2" />
-            Download Templates
-          </button>
-          <button className="btn-secondary px-4 py-2">
-            <FileText className="h-4 w-4 mr-2" />
-            Data Guide
-          </button>
-        </div>
+        {processedData.length > 0 && (
+          <div className="text-sm text-gray-500">
+            <p>{processedData.length} records processed</p>
+            <p>Last updated: {new Date().toLocaleTimeString()}</p>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Upload Area */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => !tab.disabled && setActiveTab(tab.id as any)}
+                disabled={tab.disabled}
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+                  activeTab === tab.id
+                    ? 'border-cathay-teal text-cathay-teal'
+                    : tab.disabled
+                    ? 'border-transparent text-gray-400 cursor-not-allowed'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{tab.name}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'upload' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Upload Area */}
+          <div className="lg:col-span-2 space-y-6">
           <div className="card p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Data Files</h2>
             
@@ -218,38 +334,89 @@ const DataIngestion: React.FC = () => {
               </p>
             </div>
 
-            {/* File Type Information */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Package className="h-5 w-5 text-blue-600" />
-                  <h3 className="text-sm font-semibold text-blue-900">CARDIT Data</h3>
+            {/* Processing Results */}
+            {processResult && (
+              <div className="mt-6 p-4 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg">
+                <div className="flex items-center space-x-2 mb-3">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <h3 className="text-sm font-semibold text-green-900">Processing Complete</h3>
                 </div>
-                <p className="text-xs text-blue-800">
-                  Invoice data from postal services with receptacle and package information
+                <p className="text-xs text-gray-700 mb-3">
+                  Processed {processResult.total_records} records successfully
                 </p>
-              </div>
-              
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Database className="h-5 w-5 text-green-600" />
-                  <h3 className="text-sm font-semibold text-green-900">AWB Master</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className={`p-3 rounded-md ${
+                    processResult.results.china_post.available 
+                      ? 'bg-green-100 border border-green-200' 
+                      : 'bg-red-100 border border-red-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium">China Post Output</span>
+                      {processResult.results.china_post.available ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-red-600" />
+                      )}
+                    </div>
+                    {processResult.results.china_post.records_processed && (
+                      <p className="text-xs text-gray-600 mt-1">
+                        {processResult.results.china_post.records_processed} records ready
+                      </p>
+                    )}
+                  </div>
+                  <div className={`p-3 rounded-md ${
+                    processResult.results.cbp.available 
+                      ? 'bg-green-100 border border-green-200' 
+                      : 'bg-red-100 border border-red-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium">CBP Output</span>
+                      {processResult.results.cbp.available ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-red-600" />
+                      )}
+                    </div>
+                    {processResult.results.cbp.records_processed && (
+                      <p className="text-xs text-gray-600 mt-1">
+                        {processResult.results.cbp.records_processed} records ready
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <p className="text-xs text-green-800">
-                  Cathay flight data with AWB numbers and routing information
-                </p>
               </div>
-              
-              <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                <div className="flex items-center space-x-2 mb-2">
-                  <GitMerge className="h-5 w-5 text-purple-600" />
-                  <h3 className="text-sm font-semibold text-purple-900">Event Data</h3>
+            )}
+
+            {/* Required Columns Information */}
+            {columns && (
+              <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Required Data Columns</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <h4 className="font-medium text-blue-900 mb-2">China Post Columns ({columns.china_post_columns.length})</h4>
+                    <div className="space-y-1 max-h-20 overflow-y-auto">
+                      {columns.china_post_columns.slice(0, 5).map((col, idx) => (
+                        <div key={idx} className="text-gray-600">• {col}</div>
+                      ))}
+                      {columns.china_post_columns.length > 5 && (
+                        <div className="text-gray-500">... and {columns.china_post_columns.length - 5} more</div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-green-900 mb-2">CBP Columns ({columns.cbp_columns.length})</h4>
+                    <div className="space-y-1 max-h-20 overflow-y-auto">
+                      {columns.cbp_columns.slice(0, 5).map((col, idx) => (
+                        <div key={idx} className="text-gray-600">• {col}</div>
+                      ))}
+                      {columns.cbp_columns.length > 5 && (
+                        <div className="text-gray-500">... and {columns.cbp_columns.length - 5} more</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs text-purple-800">
-                  Flight events including departures, arrivals, and deliveries
-                </p>
               </div>
-            </div>
+            )}
           </div>
 
           {/* File List */}
@@ -263,12 +430,12 @@ const DataIngestion: React.FC = () => {
                   <div key={file.id} className="p-6 flex items-center justify-between hover:bg-gray-50">
                     <div className="flex items-center space-x-4">
                       <div className="flex-shrink-0">
-                        {getFileTypeIcon(file.file_type)}
+                        {getFileTypeIcon()}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-900">{file.filename}</p>
                         <div className="flex items-center space-x-2 mt-1">
-                          <span className="text-xs text-gray-500">{getFileTypeLabel(file.file_type)}</span>
+                          <span className="text-xs text-gray-500">{getFileTypeLabel()}</span>
                           <span className="text-xs text-gray-300">•</span>
                           <span className="text-xs text-gray-500">
                             {formatDate(file.upload_date)}
@@ -342,8 +509,8 @@ const DataIngestion: React.FC = () => {
                     File Type
                   </label>
                   <div className="mt-1 flex items-center space-x-2">
-                    {getFileTypeIcon(selectedFile.file_type)}
-                    <span className="text-sm text-gray-900">{getFileTypeLabel(selectedFile.file_type)}</span>
+                    {getFileTypeIcon()}
+                    <span className="text-sm text-gray-900">{getFileTypeLabel()}</span>
                   </div>
                 </div>
                 
@@ -452,8 +619,65 @@ const DataIngestion: React.FC = () => {
               </div>
             </div>
           )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Dashboard Tab */}
+      {activeTab === 'dashboard' && (
+        <Dashboard data={processedData} processResult={processResult} />
+      )}
+
+      {/* CBP Tab */}
+      {activeTab === 'cbp' && (
+        <CBPSection 
+          data={processedData} 
+          onDownload={handleGenerateCBP}
+          isAvailable={processResult?.results.cbp.available || false}
+        />
+      )}
+
+      {/* China Post Tab */}
+      {activeTab === 'china-post' && (
+        <ChinaPostSection 
+          data={processedData} 
+          onDownload={handleGenerateChinaPost}
+          isAvailable={processResult?.results.china_post.available || false}
+        />
+      )}
+
+      {/* Quick Actions - Always visible when data is processed */}
+      {processedData.length > 0 && (
+        <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
+          {processResult?.results.china_post.available && (
+            <button 
+              onClick={handleGenerateChinaPost}
+              className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>China Post</span>
+            </button>
+          )}
+          {processResult?.results.cbp.available && (
+            <button 
+              onClick={handleGenerateCBP}
+              className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>CBP Report</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
+      )}
     </div>
   );
 };

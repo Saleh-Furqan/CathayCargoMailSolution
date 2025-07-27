@@ -1,15 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard,
   Upload,
-  GitMerge,
-  Package,
-  Calculator,
-  FileText,
-  Receipt,
-  Scale,
-  Settings,
   Menu,
   X,
   Plane,
@@ -29,19 +21,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
 
   const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Data Ingestion', href: '/data-ingestion', icon: Upload },
-    { name: 'Data Consolidation', href: '/consolidation', icon: GitMerge },
-    { name: 'Shipment Tracking', href: '/tracking', icon: Package },
-    { name: 'Tariff Calculation', href: '/tariff-calculation', icon: Calculator },
-    { name: 'CBP Reporting', href: '/cbp-reporting', icon: FileText },
-    { name: 'China Post Invoicing', href: '/china-post-invoicing', icon: Receipt },
-    { name: 'Reconciliation', href: '/reconciliation', icon: Scale },
-    { name: 'Settings', href: '/settings', icon: Settings },
+    { name: 'Template Processing', href: '/', icon: Upload },
   ];
 
   const isActive = (path: string) => {
-    return location.pathname === path || (path === '/dashboard' && location.pathname === '/');
+    return location.pathname === path;
   };
 
   return (
@@ -99,7 +83,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <Mail className="h-6 w-6 text-cathay-navy" />
                   </div>
                   <div className="lg:hidden">
-                    <h1 className="text-lg font-bold text-gray-900">US Tariff Management</h1>
+                    <h1 className="text-lg font-bold text-gray-900">Cargo Mail Solution</h1>
                   </div>
                 </div>
               </div>
@@ -184,7 +168,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ navigation, isActive })
           </div>
           <div>
             <h2 className="text-white text-lg font-semibold">Cathay Cargo</h2>
-            <p className="text-white/80 text-xs">US Tariff Management</p>
+            <p className="text-white/80 text-xs">Mail Solution</p>
           </div>
         </div>
       </div>
