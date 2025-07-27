@@ -136,63 +136,88 @@ const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, i
       )}
 
       {/* Analytics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-red-500">
+      <div className="flex flex-wrap gap-4 sm:gap-6">
+        {/* Total Weight - Dynamic width based on number */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.totalWeight > 999999 ? 'min-w-[200px]' :
+          analytics.totalWeight > 99999 ? 'min-w-[180px]' :
+          analytics.totalWeight > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-red-500 flex-shrink-0">
               <Package className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Weight</p>
-              <p className="text-2xl font-bold text-gray-900">{analytics.totalWeight.toLocaleString()} kg</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Weight</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{analytics.totalWeight.toLocaleString()} kg</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-green-500">
+        {/* Total Charges - Dynamic width for currency */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.totalCharges > 99999999 ? 'min-w-[280px]' :
+          analytics.totalCharges > 9999999 ? 'min-w-[250px]' :
+          analytics.totalCharges > 999999 ? 'min-w-[220px]' :
+          analytics.totalCharges > 99999 ? 'min-w-[200px]' :
+          analytics.totalCharges > 9999 ? 'min-w-[180px]' : 'min-w-[160px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-green-500 flex-shrink-0">
               <DollarSign className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Charges</p>
-              <p className="text-2xl font-bold text-gray-900">${analytics.totalCharges.toLocaleString()}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Charges</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.totalCharges.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-blue-500">
+        {/* Total Pieces - Dynamic width */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.totalPieces > 999999 ? 'min-w-[200px]' :
+          analytics.totalPieces > 99999 ? 'min-w-[180px]' :
+          analytics.totalPieces > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-blue-500 flex-shrink-0">
               <Package className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Pieces</p>
-              <p className="text-2xl font-bold text-gray-900">{analytics.totalPieces.toLocaleString()}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Pieces</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{analytics.totalPieces.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-purple-500">
+        {/* Airlines - Compact for small numbers */}
+        <div className="card p-6 flex-shrink-0 min-w-[120px]">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-purple-500 flex-shrink-0">
               <Plane className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Airlines</p>
-              <p className="text-2xl font-bold text-gray-900">{analytics.uniqueAirlines}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Airlines</p>
+              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.uniqueAirlines}</p>
             </div>
           </div>
         </div>
 
-        <div className="card p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-orange-500">
+        {/* Air Freight - Dynamic width for currency */}
+        <div className={`card p-6 flex-shrink-0 ${
+          analytics.totalAirFreight > 99999999 ? 'min-w-[280px]' :
+          analytics.totalAirFreight > 9999999 ? 'min-w-[250px]' :
+          analytics.totalAirFreight > 999999 ? 'min-w-[220px]' :
+          analytics.totalAirFreight > 99999 ? 'min-w-[200px]' :
+          analytics.totalAirFreight > 9999 ? 'min-w-[180px]' : 'min-w-[160px]'
+        }`}>
+          <div className="flex items-center space-x-3">
+            <div className="p-3 rounded-lg bg-orange-500 flex-shrink-0">
               <TrendingUp className="h-6 w-6 text-white" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Air Freight</p>
-              <p className="text-2xl font-bold text-gray-900">${analytics.totalAirFreight.toLocaleString()}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Air Freight</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.totalAirFreight.toLocaleString()}</p>
             </div>
           </div>
         </div>

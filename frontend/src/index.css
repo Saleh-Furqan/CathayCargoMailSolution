@@ -33,9 +33,9 @@
     right: 0;
     bottom: 0;
     background: 
-      radial-gradient(circle at 20% 20%, rgba(0, 101, 100, 0.1) 0%, transparent 70%),
-      radial-gradient(circle at 80% 80%, rgba(30, 58, 95, 0.1) 0%, transparent 70%),
-      radial-gradient(circle at 40% 40%, rgba(0, 101, 100, 0.05) 0%, transparent 50%);
+      radial-gradient(circle at 20% 20%, rgba(54, 120, 120, 0.1) 0%, transparent 70%),
+      radial-gradient(circle at 80% 80%, rgba(44, 64, 54, 0.1) 0%, transparent 70%),
+      radial-gradient(circle at 40% 40%, rgba(54, 120, 120, 0.05) 0%, transparent 50%);
     pointer-events: none;
     z-index: -1;
   }
@@ -56,23 +56,23 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #006564, #004d4c);
+    background: linear-gradient(180deg, #367878, #2C4036);
     border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, #004d4c, #003d3c);
+    background: linear-gradient(180deg, #2C4036, #163230);
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-lg text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cathay-teal focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:scale-[1.02] active:scale-[0.98];
+    @apply inline-flex items-center justify-center rounded-lg text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cathay-teal focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 min-h-[44px] px-4 py-2 sm:hover:scale-[1.02] active:scale-[0.98] touch-manipulation;
   }
   
   .btn-primary {
     @apply btn text-white shadow-lg hover:shadow-2xl relative overflow-hidden;
-    background: linear-gradient(135deg, #006564 0%, #004d4c 50%, #003d3c 100%);
+    background: linear-gradient(135deg, #367878 0%, #2C4036 50%, #163230 100%);
     border: 1px solid rgba(255, 255, 255, 0.2);
   }
 
@@ -94,17 +94,17 @@
   .btn-secondary {
     @apply btn text-cathay-navy shadow-md hover:shadow-xl backdrop-blur-md;
     background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(0, 101, 100, 0.2);
+    border: 1px solid rgba(54, 120, 120, 0.2);
   }
   
   .btn-outline {
     @apply btn text-cathay-teal shadow-md hover:shadow-xl backdrop-blur-md hover:text-white;
     background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(0, 101, 100, 0.3);
+    border: 1px solid rgba(54, 120, 120, 0.3);
   }
 
   .btn-outline:hover {
-    background: linear-gradient(135deg, #006564 0%, #004d4c 100%);
+    background: linear-gradient(135deg, #367878 0%, #2C4036 100%);
     border-color: rgba(255, 255, 255, 0.2);
   }
   
@@ -118,27 +118,33 @@
   }
   
   .card {
-    @apply rounded-xl shadow-md hover:shadow-lg transition-all duration-200 backdrop-blur-sm;
+    @apply rounded-lg sm:rounded-xl shadow-md transition-all duration-200 backdrop-blur-sm;
     background: rgba(255, 255, 255, 0.98);
-    border: 1px solid rgba(0, 101, 100, 0.1);
+    border: 1px solid rgba(54, 120, 120, 0.1);
   }
 
-  .card:hover {
-    transform: translateY(-2px);
+  @media (hover: hover) {
+    .card:hover {
+      @apply shadow-lg;
+      transform: translateY(-2px);
+    }
   }
 
   .card-premium {
-    @apply card shadow-lg hover:shadow-xl relative;
+    @apply card shadow-lg relative;
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 250, 252, 0.98) 100%);
-    border: 1px solid rgba(0, 101, 100, 0.15);
+    border: 1px solid rgba(54, 120, 120, 0.15);
   }
 
-  .card-premium:hover {
-    transform: translateY(-3px);
+  @media (hover: hover) {
+    .card-premium:hover {
+      @apply shadow-xl;
+      transform: translateY(-3px);
+    }
   }
   
   .input {
-    @apply flex h-11 w-full rounded-lg border border-cathay-grey-300 bg-white px-4 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-cathay-grey-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cathay-teal focus-visible:ring-offset-2 focus-visible:border-cathay-teal disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200;
+    @apply flex min-h-[44px] w-full rounded-lg border border-cathay-grey-300 bg-white px-4 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-cathay-grey-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cathay-teal focus-visible:ring-offset-2 focus-visible:border-cathay-teal disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 touch-manipulation;
   }
   
   .nav-link {
@@ -146,11 +152,11 @@
   }
   
   .nav-link-active {
-    @apply nav-link bg-white/20 text-white shadow-md backdrop-blur-sm;
+    @apply nav-link bg-white/25 text-white shadow-lg backdrop-blur-sm border border-white/30;
   }
   
   .nav-link-inactive {
-    @apply nav-link text-white/70 hover:bg-white/10 hover:text-white;
+    @apply nav-link text-white/80 hover:bg-white/15 hover:text-white hover:border-white/20 border border-transparent;
   }
 
   .status-badge {
@@ -177,12 +183,14 @@
     @apply card-premium p-6 text-center transition-all duration-200 relative;
   }
 
-  .stat-card:hover {
-    transform: translateY(-4px) scale(1.02);
+  @media (hover: hover) {
+    .stat-card:hover {
+      transform: translateY(-4px) scale(1.02);
+    }
   }
 
   .gradient-text {
-    background: linear-gradient(135deg, #006564 0%, #1e3a5f 100%);
+    background: linear-gradient(135deg, #367878 0%, #2D2D2D 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -204,7 +212,7 @@
   }
 
   .pulse-glow {
-    box-shadow: 0 0 20px rgba(0, 101, 100, 0.2);
+    box-shadow: 0 0 20px rgba(54, 120, 120, 0.2);
   }
 
   .icon-container {
@@ -250,11 +258,97 @@
     bottom: 0;
     width: 0;
     height: 2px;
-    background: linear-gradient(90deg, #006564, #1e3a5f);
+    background: linear-gradient(90deg, #367878, #2D2D2D);
     transition: width 0.3s ease;
   }
 
   .nav-item:hover::after {
     width: 100%;
+  }
+
+  /* Responsive Grid Utilities */
+  .responsive-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6;
+  }
+
+  .responsive-grid-2 {
+    @apply grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6;
+  }
+
+  .responsive-grid-3 {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6;
+  }
+
+  /* Mobile-first Typography */
+  .responsive-title {
+    @apply text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold;
+  }
+
+  .responsive-subtitle {
+    @apply text-base sm:text-lg md:text-xl font-semibold;
+  }
+
+  .responsive-text {
+    @apply text-sm sm:text-base;
+  }
+
+  /* Mobile-friendly spacing */
+  .responsive-padding {
+    @apply p-4 sm:p-6 md:p-8;
+  }
+
+  .responsive-margin {
+    @apply m-4 sm:m-6 md:m-8;
+  }
+
+  /* Touch-friendly interactions */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] touch-manipulation;
+  }
+
+  /* Safe area adjustments for mobile devices */
+  .safe-area-padding {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Consistent section spacing */
+  .section-spacing {
+    @apply space-y-6 sm:space-y-8;
+  }
+
+  /* Consistent card spacing */
+  .card-content {
+    @apply p-4 sm:p-6;
+  }
+
+  .card-content-lg {
+    @apply p-6 sm:p-8;
+  }
+
+  /* Consistent text spacing */
+  .text-spacing {
+    @apply space-y-1;
+  }
+
+  .text-spacing-lg {
+    @apply space-y-2;
+  }
+
+  /* Header spacing */
+  .header-spacing {
+    @apply mb-4 sm:mb-6;
+  }
+
+  /* List spacing */
+  .list-spacing {
+    @apply space-y-2 sm:space-y-3;
+  }
+
+  /* Form spacing */
+  .form-spacing {
+    @apply space-y-4 sm:space-y-6;
   }
 }
