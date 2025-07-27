@@ -7,42 +7,79 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Cathay Pacific Brand Colors - Logo Colors
+        'cathay-logo-brand-default': '#005D63',
+        'cathay-logo-monotone-dark': '#2D2D2D',
+        'cathay-logo-monotone-white': '#FFFFFF',
+        
+        // Primary Brand Colors - Dark Cyan/Teal (Main Brand)
+        'cathay-primary-darkcyan': {
+          DEFAULT: '#367878',
+          'active': '#163230',
+          'light': '#F1F4F1'
+        },
+        'cathay-primary-darkgreen': {
+          DEFAULT: '#2C4036',
+          'active': '#002527',
+          'light': '#D7E5E4'
+        },
+        
+        // Secondary Brand Colors
+        'cathay-secondary-gold': {
+          DEFAULT: '#886521',
+          'active': '#36280D',
+          'light': '#E7E0D2'
+        },
+        'cathay-secondary-lightgrey': '#F9F9F9',
+        'cathay-secondary-lightorange': {
+          DEFAULT: '#F3EEBF',
+          'light': '#F9F8F7'
+        },
+        'cathay-secondary-lightyellow': '#F7E6F1',
+        
+        // Neutral Colors
+        'cathay-neutral-darkgrey': '#2D2D2D',
+        'cathay-neutral-darkgreyishblue': '#66686A',
+        'cathay-neutral-greyishblue': '#8C8EC0',
+        'cathay-neutral-lightgrey': '#E6E6E6',
+        
+        // Legacy colors for backward compatibility
         'cathay-teal': {
-          DEFAULT: '#006564',
+          DEFAULT: '#367878',
           50: '#f0f9f9',
           100: '#ccebea',
           200: '#99d7d6',
           300: '#66c3c1',
           400: '#33afad',
-          500: '#006564',
-          600: '#005150',
-          700: '#003d3c',
-          800: '#002928',
+          500: '#367878',
+          600: '#2C4036',
+          700: '#163230',
+          800: '#002527',
           900: '#001514',
-          'dark': '#004d4c'
+          'dark': '#163230'
         },
         'cathay-navy': {
-          DEFAULT: '#1e3a5f',
+          DEFAULT: '#2D2D2D',
           50: '#f4f7fb',
           100: '#d7e4f0',
           200: '#b0c9e1',
           300: '#88aed2',
           400: '#6193c3',
-          500: '#1e3a5f',
-          600: '#182e4c',
-          700: '#122239',
-          800: '#0c1626',
-          900: '#060b13'
+          500: '#2D2D2D',
+          600: '#66686A',
+          700: '#8C8EC0',
+          800: '#1f2937',
+          900: '#111827'
         },
         'cathay-grey': {
-          DEFAULT: '#6b7280',
+          DEFAULT: '#66686A',
           50: '#f9fafb',
-          100: '#f3f4f6',
-          200: '#e5e7eb',
-          300: '#d1d5db',
-          400: '#9ca3af',
-          500: '#6b7280',
-          600: '#4b5563',
+          100: '#F9F9F9',
+          200: '#E6E6E6',
+          300: '#8C8EC0',
+          400: '#66686A',
+          500: '#66686A',
+          600: '#2D2D2D',
           700: '#374151',
           800: '#1f2937',
           900: '#111827'
