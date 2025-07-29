@@ -33,6 +33,13 @@ settings.local.json
 ehthumbs.db
 Thumbs.db
 
+# Windows Zone Identifier files
+*:Zone.Identifier
+*:Zone.Identifier:*
+
+# Windows temporary files
+~$*
+
 # Logs
 logs/
 *.log
