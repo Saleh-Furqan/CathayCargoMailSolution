@@ -1,5 +1,20 @@
 const API_BASE_URL = 'http://localhost:5001';
 
+export interface HistoricalDataResponse {
+  data: any[];
+  total_records: number;
+  results: {
+    china_post: {
+      available: boolean;
+      records_processed?: number;
+    };
+    cbp: {
+      available: boolean;
+      records_processed?: number;
+    };
+  };
+}
+
 export interface ProcessDataResponse {
   success: boolean;
   message: string;
@@ -90,6 +105,13 @@ class ApiService {
     }
 
     return response.blob();
+  }
+
+  async getHistoricalData(startDate: string, endDate: string): Promise<HistoricalDataResponse> {
+    return this.request('/historical-data', {
+      method: 'POST',
+      body: JSON.stringify({ startDate, endDate }),
+    });
   }
 }
 
