@@ -1,11 +1,19 @@
 import React from 'react';
-import { Mail } from 'lucide-react';
+import { Mail, Upload, Clock } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const location = useLocation();
+
+  const navigation = [
+    { name: 'Data Processing', path: '/data-processing', icon: Upload },
+    { name: 'Historical Data', path: '/historical-data', icon: Clock },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* Top Navigation Header */}
@@ -14,6 +22,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             {/* Desktop Header */}
             <div className="hidden md:flex h-16 items-center justify-between">
+              {/* Navigation Links */}
+              <nav className="flex items-center space-x-8">
+                {navigation.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.path}
+                      className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium ${
+                        isActive
+                          ? 'text-cathay-teal bg-cathay-teal/10'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
               <div className="flex items-center space-x-6">
                 <img 
                   src="/cathay-logo.svg" 
@@ -32,6 +60,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   </div>
                 </div>
               </div>
+              </nav>
               
               <div className="flex items-center">
                 <div className="text-right space-y-1">
@@ -48,6 +77,27 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             {/* Mobile Header */}
             <div className="md:hidden py-3">
               <div className="flex flex-col space-y-4">
+                {/* Mobile Navigation */}
+                <nav className="flex flex-wrap gap-2">
+                  {navigation.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <Link
+                        key={item.name}
+                        to={item.path}
+                        className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium ${
+                          isActive
+                            ? 'text-cathay-teal bg-cathay-teal/10'
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span>{item.name}</span>
+                      </Link>
+                    );
+                  })}
+                </nav>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <img 
