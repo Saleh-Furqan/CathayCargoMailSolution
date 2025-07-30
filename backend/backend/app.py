@@ -20,6 +20,47 @@ CORS(app)
 # Create database tables
 with app.app_context():
     db.create_all()
+
+@app.route('/historical-data', methods=['POST'])
+def get_historical_data():
+    try:
+        data = request.json
+        start_date = data.get('startDate')
+        end_date = data.get('endDate')
+
+        # Query the database
+        query = ShipmentEntry.query
+
+        if start_date and end_date:
+            query = query.filter(
+                and_(
+                    func.date(ShipmentEntry.flight_date) >= start_date,
+                    func.date(ShipmentEntry.flight_date) <= end_date
+                )
+            )
+
+        # Execute query and convert to list of dictionaries
+        entries = query.all()
+        results = [entry.to_dict() for entry in entries]
+
+        return jsonify({
+            'data': results,
+            'total_records': len(results),
+            'results': {
+                'china_post': {
+                    'available': True,
+                    'records_processed': len(results)
+                },
+                'cbp': {
+                    'available': True,
+                    'records_processed': len(results)
+                }
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Template file paths
 CP_TEMPLATE = "templates/China Post data source file template.xlsx"
 CBP_TEMPLATE = "templates/CBP transported package worksheet file template.xlsx"

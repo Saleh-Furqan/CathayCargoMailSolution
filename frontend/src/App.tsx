@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout/Layout';
 import DataIngestion from './pages/DataIngestion';
+import HistoricalData from './pages/HistoricalData';
 
 function App() {
   return (
@@ -8,6 +9,7 @@ function App() {
       <Routes>
         <Route path="/" element={<DataIngestion />} />
         <Route path="/data-processing" element={<DataIngestion />} />
+        <Route path="/historical-data" element={<HistoricalData />} />
       </Routes>
     </Layout>
   );
