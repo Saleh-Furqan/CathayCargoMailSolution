@@ -155,10 +155,16 @@ CathayCargoMailSolution/
 │   ├── app.py             # Main Flask application
 │   ├── requirements.txt   # Python dependencies
 │   └── venv/              # Virtual environment
-└── project/               # Reference implementation (temporary)
-    ├── code.py            # Original processing logic
-    ├── templates/         # Template Excel files
-    └── *.xlsx            # Sample data files
+├── project/               # Reference implementation (temporary)
+│   ├── code.py            # Original processing logic
+│   ├── templates/         # Template Excel files
+│   └── *.xlsx            # Sample data files
+└── data processing/      # Jupyter Notebooks for processing CX & CNP data
+    ├── ~$master_cardit_inner_event_df.xlsx      # Data output from script.ipynb
+    ├── master_cardit_inner_event_df.xlsx      # Data output from script.ipynb
+    ├── script.ipynb      # jupyter notebook workflow 
+    └── Sample_Data_from_IODA_v2 (China Post).xlsx      # Sample IODA data
+
 ```
 
 ### Features
