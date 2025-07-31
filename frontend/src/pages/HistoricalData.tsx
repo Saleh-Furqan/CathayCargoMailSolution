@@ -11,6 +11,7 @@ import {
   Package
 } from 'lucide-react';
 import { apiService } from '../services/api';
+import { downloadBlob } from '../services/api';
 import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
@@ -54,9 +55,13 @@ const HistoricalData: React.FC = () => {
         '航司(Airline)': item.airline,
         '航班号 (Flight Number)': item.flight_number,
         '航班日期 (Flight Date)': item.flight_date,
+        '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
+        '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
         '*运价类型 (Rate Type)': item.rate_type,
         '*费率 (Rate)': parseFloat(item.rate || 0),
         '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
+        "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
+        "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
         '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
         'Carrier Code': item.carrier_code || item.airline,
         'Flight/ Trip Number': item.flight_number,
@@ -84,6 +89,56 @@ const HistoricalData: React.FC = () => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGenerateChinaPost = async () => {
+    if (!historicalData.length) {
+      setNotification({
+        message: 'No data available to generate China Post file',
+        type: 'warning'
+      });
+      return;
+    }
+
+    try {
+      const blob = await apiService.generateChinaPostFile(historicalData);
+      downloadBlob(blob, `china_post_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      setNotification({
+        message: 'China Post file generated successfully',
+        type: 'success'
+      });
+    } catch (error) {
+      console.error('Error generating China Post file:', error);
+      setNotification({
+        message: `Error generating China Post file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
+    }
+  };
+
+  const handleGenerateCBP = async () => {
+    if (!historicalData.length) {
+      setNotification({
+        message: 'No data available to generate CBP file',
+        type: 'warning'
+      });
+      return;
+    }
+
+    try {
+      const blob = await apiService.generateCBPFile(historicalData);
+      downloadBlob(blob, `cbp_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      setNotification({
+        message: 'CBP file generated successfully',
+        type: 'success'
+      });
+    } catch (error) {
+      console.error('Error generating CBP file:', error);
+      setNotification({
+        message: `Error generating CBP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
     }
   };
 
@@ -236,14 +291,14 @@ const HistoricalData: React.FC = () => {
             <CBPSection
               data={historicalData}
               isAvailable={true}
-              onDownload={() => {}}
+              onDownload={handleGenerateCBP}
             />
           )}
           {activeTab === 'china-post' && (
             <ChinaPostSection
               data={historicalData}
               isAvailable={true}
-              onDownload={() => {}}
+              onDownload={handleGenerateChinaPost}
             />
           )}
         </div>
