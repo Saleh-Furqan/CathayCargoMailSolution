@@ -6,9 +6,8 @@ import {
   Plane,
   BarChart3,
   Filter,
-  DollarSign,
-  Scale,
-  Package
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { downloadBlob } from '../services/api';
@@ -24,10 +23,23 @@ const HistoricalData: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'cbp' | 'china-post'>('overview');
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [processResult, setProcessResult] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage] = useState(10);
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'warning' | 'info';
   } | null>(null);
+
+  // Calculate pagination
+  const indexOfLastRecord = currentPage * recordsPerPage;
+  const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
+  const currentRecords = historicalData.slice(indexOfFirstRecord, indexOfLastRecord);
+  const totalPages = Math.ceil(historicalData.length / recordsPerPage);
+
+  // Reset to first page when data changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [historicalData]);
 
   // Load initial data on component mount
   useEffect(() => {
@@ -251,7 +263,7 @@ const HistoricalData: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {historicalData.map((record, index) => (
+                    {currentRecords.map((record, index) => (
                       <tr key={index} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {record['*运单号 (AWB Number)']}
@@ -273,12 +285,57 @@ const HistoricalData: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <span>
+                      Showing {indexOfFirstRecord + 1} to {Math.min(indexOfLastRecord, historicalData.length)} of {historicalData.length} records
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </button>
+                    
+                    {/* Page numbers */}
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`inline-flex items-center px-3 py-2 border text-sm font-medium rounded-md ${
+                          currentPage === page
+                            ? 'border-blue-500 bg-blue-50 text-blue-600'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {activeTab === 'analytics' && (
             <Dashboard 
               data={historicalData} 
-              processResult={{
+              processResult={processResult || {
                 results: {
                   china_post: { available: true, records_processed: historicalData.length },
                   cbp: { available: true, records_processed: historicalData.length }
@@ -321,8 +378,8 @@ const HistoricalData: React.FC = () => {
         />
       )}
 
-      {/* Quick Actions - Always visible when data is available */}
-      {historicalData.length > 0 && (
+      {/* Quick Actions - Only visible when data is available and not on CBP or China Post tabs */}
+      {historicalData.length > 0 && activeTab !== 'cbp' && activeTab !== 'china-post' && (
         <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
           <button 
             onClick={handleGenerateChinaPost}
