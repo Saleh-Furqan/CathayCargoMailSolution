@@ -36,6 +36,7 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
     pieces: item['*件数(Pieces)'],
     weight: item['*重量 (Weight)'],
   }));
+  console.log(cbpData);
 
   // Filter data
   const filteredData = cbpData.filter(item => {

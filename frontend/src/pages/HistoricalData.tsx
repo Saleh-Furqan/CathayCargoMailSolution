@@ -43,7 +43,31 @@ const HistoricalData: React.FC = () => {
     try {
       setIsLoading(true);
       const response = await apiService.getHistoricalData(startDate, endDate);
-      setHistoricalData(response.data);
+      
+      // Format data for consistency with ingestion format
+      const formattedData = response.data.map(item => ({
+        '*运单号 (AWB Number)': item.awb_number,
+        '*始发站（Departure station）': item.departure_station,
+        '*目的站（Destination）': item.destination,
+        '*件数(Pieces)': parseFloat(item.pieces || 0),
+        '*重量 (Weight)': parseFloat(item.weight || 0),
+        '航司(Airline)': item.airline,
+        '航班号 (Flight Number)': item.flight_number,
+        '航班日期 (Flight Date)': item.flight_date,
+        '*运价类型 (Rate Type)': item.rate_type,
+        '*费率 (Rate)': parseFloat(item.rate || 0),
+        '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
+        '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
+        'Carrier Code': item.carrier_code || item.airline,
+        'Flight/ Trip Number': item.flight_number,
+        'Tracking Number': item.tracking_number || item.awb_number,
+        'Arrival Port Code': item.arrival_port_code || item.destination,
+        'Arrival Date': item.arrival_date || item.flight_date,
+        'Declared Value (USD)': item.declared_value_usd || parseFloat(item.total_charges || 0)
+      }));
+
+      setHistoricalData(formattedData);
+
       setProcessResult({
         results: response.results,
         total_records: response.total_records
@@ -175,19 +199,19 @@ const HistoricalData: React.FC = () => {
                     {historicalData.map((record, index) => (
                       <tr key={index} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {record.awb_number}
+                          {record['*运单号 (AWB Number)']}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {record.flight_date}
+                          {record['航班日期 (Flight Date)']}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {record.destination}
+                          {record['*目的站（Destination）']}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {record.weight}
+                          {record['*重量 (Weight)']}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          ${parseFloat(record.total_charges || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          ${record['*总运费 (Total Charges)'].toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
                     ))}
@@ -199,20 +223,26 @@ const HistoricalData: React.FC = () => {
           {activeTab === 'analytics' && (
             <Dashboard 
               data={historicalData} 
-              processResult={processResult} 
+              processResult={{
+                results: {
+                  china_post: { available: true, records_processed: historicalData.length },
+                  cbp: { available: true, records_processed: historicalData.length }
+                },
+                total_records: historicalData.length
+              }} 
             />
           )}
           {activeTab === 'cbp' && (
             <CBPSection
               data={historicalData}
-              isAvailable={processResult?.results.cbp.available || false}
+              isAvailable={true}
               onDownload={() => {}}
             />
           )}
           {activeTab === 'china-post' && (
             <ChinaPostSection
               data={historicalData}
-              isAvailable={processResult?.results.china_post.available || false}
+              isAvailable={true}
               onDownload={() => {}}
             />
           )}
