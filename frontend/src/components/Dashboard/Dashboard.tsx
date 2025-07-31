@@ -10,8 +10,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  Area,
-  AreaChart,
 } from 'recharts';
 import {
   TrendingUp,
@@ -92,10 +90,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
     const destinationData = data.reduce((acc, item) => {
       const dest = item['*目的站（Destination）'] || 'Unknown';
       if (!acc[dest]) {
-        acc[dest] = { name: dest, packages: 0, weight: 0, value: 0 };
+        acc[dest] = { name: dest, packages: 0, weight: 0, value: 0, totalRate: 0, count: 0 };
       }
       acc[dest].packages += item['*件数(Pieces)'] || 0;
       acc[dest].weight += item['*重量 (Weight)'] || 0;
+      acc[dest].totalRate += item['*费率 (Rate)'] || 0;
+      acc[dest].count += 1;
       const declaredValue = item['Declared Value (USD)'];
       if (typeof declaredValue === 'string') {
         acc[dest].value += parseFloat(declaredValue.replace('$', '').replace(',', '')) || 0;
@@ -104,6 +104,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       }
       return acc;
     }, {} as Record<string, any>);
+
+    // Calculate average rates for destinations
+    const destinationDataWithAvg = Object.values(destinationData).map((dest: any) => ({
+      ...dest,
+      avgRate: dest.count > 0 ? Math.round((dest.totalRate / dest.count) * 100) / 100 : 0
+    }));
 
     // Group by rate type
     const rateTypeData = data.reduce((acc, item) => {
@@ -124,7 +130,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       averageWeight: Math.round((totalWeight / data.length) * 100) / 100,
       averageValue: Math.round((totalDeclaredValue / data.length) * 100) / 100,
       airlineData: Object.values(airlineData),
-      destinationData: Object.values(destinationData),
+      destinationData: destinationDataWithAvg,
       rateTypeData: Object.values(rateTypeData),
       uniqueCarriers: new Set(data.map(item => item['Carrier Code'])).size,
       uniqueDestinations: new Set(data.map(item => item['*目的站（Destination）'])).size,
@@ -270,23 +276,23 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* Airline Distribution */}
+        {/* Revenue by Destination */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Package Distribution by Airline</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Revenue by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={analytics.airlineData}>
+            <BarChart data={analytics.destinationData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip />
-              <Bar dataKey="packages" fill="#3B82F6" />
+              <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Revenue']} />
+              <Bar dataKey="value" fill="#3B82F6" />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Destination Distribution */}
+        {/* Package Distribution by Destination */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Packages by Destination</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Package Distribution by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -294,7 +300,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, value }) => `${name}: ${value}`}
+                label={({ name, packages }) => `${name}: ${packages}`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="packages"
@@ -308,55 +314,47 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
           </ResponsiveContainer>
         </div>
 
-        {/* Weight Analysis */}
+        {/* Average Tariff Rate by Destination */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Weight Distribution by Airline</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Average Tariff Rate by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={analytics.airlineData}>
+            <BarChart data={analytics.destinationData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip />
-              <Area type="monotone" dataKey="weight" stroke="#10B981" fill="#10B981" fillOpacity={0.6} />
-            </AreaChart>
+              <Tooltip formatter={(value) => [`$${Number(value).toFixed(2)}/kg`, 'Avg Rate']} />
+              <Bar dataKey="avgRate" fill="#10B981" />
+            </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Rate Type Analysis */}
+        {/* Weight Distribution by Destination */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Rate Type Distribution</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Weight Distribution by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={analytics.rateTypeData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, count }) => `${name}: ${count}`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="count"
-              >
-                {analytics.rateTypeData.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
+            <BarChart data={analytics.destinationData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} kg`, 'Total Weight']} />
+              <Bar dataKey="weight" fill="#8B5CF6" />
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Financial Analysis */}
+      {/* Tariff Analysis */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Financial Analysis by Airline</h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Revenue vs Weight Efficiency by Destination</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={analytics.airlineData}>
+          <BarChart data={analytics.destinationData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" />
-            <YAxis />
+            <YAxis yAxisId="left" />
+            <YAxis yAxisId="right" orientation="right" />
             <Tooltip />
-            <Bar dataKey="charges" fill="#8B5CF6" />
+            <Bar yAxisId="left" dataKey="value" fill="#3B82F6" name="Revenue ($)" />
+            <Bar yAxisId="right" dataKey="avgRate" fill="#F59E0B" name="Rate ($/kg)" />
           </BarChart>
         </ResponsiveContainer>
       </div>

@@ -646,8 +646,8 @@ const DataIngestion: React.FC = () => {
         />
       )}
 
-      {/* Quick Actions - Always visible when data is processed */}
-      {processedData.length > 0 && (
+      {/* Quick Actions - Only visible when data is processed and not on CBP or China Post tabs */}
+      {processedData.length > 0 && activeTab !== 'cbp' && activeTab !== 'china-post' && (
         <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
           {processResult?.results.china_post.available && (
             <button 

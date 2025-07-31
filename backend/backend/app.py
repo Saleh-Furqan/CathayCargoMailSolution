@@ -5,10 +5,61 @@ from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 import io
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from models import db, ShipmentEntry
+from config import Config
+from sqlalchemy import func, and_
 
 app = Flask(__name__)
+app.config.from_object(Config)
+
+# Initialize the database
+db.init_app(app)
 CORS(app)
+
+# Create database tables
+with app.app_context():
+    db.create_all()
+
+@app.route('/historical-data', methods=['POST'])
+def get_historical_data():
+    try:
+        data = request.json
+        start_date = data.get('startDate')
+        end_date = data.get('endDate')
+
+        # Query the database
+        query = ShipmentEntry.query
+
+        if start_date and end_date:
+            query = query.filter(
+                and_(
+                    func.date(ShipmentEntry.flight_date) >= start_date,
+                    func.date(ShipmentEntry.flight_date) <= end_date
+                )
+            )
+
+        # Execute query and convert to list of dictionaries
+        entries = query.all()
+        results = [entry.to_dict() for entry in entries]
+
+        return jsonify({
+            'data': results,
+            'total_records': len(results),
+            'results': {
+                'china_post': {
+                    'available': True,
+                    'records_processed': len(results)
+                },
+                'cbp': {
+                    'available': True,
+                    'records_processed': len(results)
+                }
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Template file paths
 CP_TEMPLATE = "templates/China Post data source file template.xlsx"
@@ -82,8 +133,57 @@ def filter_cp_data(df):
     )
     return df[mask].reset_index(drop=True)
 
+def save_to_database(row):
+    """Save a single row of data to the database"""
+    # Check if entry already exists
+    awb_number = str(row.get('*运单号 (AWB Number)', ''))
+    destination = str(row.get('*目的站（Destination）', ''))
+    departure_station = str(row.get('*始发站（Departure station）', ''))
+    flight_number = str(row.get('航班号 (Flight Number)', row.get('Flight/ Trip Number', '')))
+    flight_date = str(row.get('航班日期 (Flight Date)', row.get('Arrival Date', '')))
+    
+    existing_entry = ShipmentEntry.query.filter_by(
+        awb_number=awb_number,
+        destination=destination,
+        departure_station=departure_station,
+        flight_number=flight_number,
+        flight_date=flight_date
+    ).first()
+    
+    if existing_entry:
+        return False  # Skip duplicate entry
+        
+    # Create shipment entry with all available data
+    entry = ShipmentEntry(
+        # China Post fields
+        awb_number=str(row.get('*运单号 (AWB Number)', '')),
+        departure_station=str(row.get('*始发站（Departure station）', '')),
+        destination=str(row.get('*目的站（Destination）', '')),
+        pieces=str(row.get('*件数(Pieces)', '')),
+        weight=str(row.get('*重量 (Weight)', '')),
+        airline=str(row.get('航司(Airline)', '')),
+        flight_number=str(row.get('航班号 (Flight Number)', row.get('Flight/ Trip Number', ''))),
+        flight_date=str(row.get('航班日期 (Flight Date)', row.get('Arrival Date', ''))),
+        total_mail_items=str(row.get('一个航班的邮件item总数 (Total mail items per flight)', '')),
+        total_mail_weight=str(row.get('一个航班的邮件总重量 (Total mail weight per flight)', '')),
+        rate_type=str(row.get('*运价类型 (Rate Type)', '')),
+        rate=str(row.get('*费率 (Rate)', '')),
+        air_freight=str(row.get('*航空运费 (Air Freight)', '')),
+        agent_charges=str(row.get('代理人的其他费用 (Agent\'s Other Charges)', '')),
+        carrier_charges=str(row.get('承运人的其他费用 (Carrier\'s Other Charges)', '')),
+        total_charges=str(row.get('*总运费 (Total Charges)', '')),
+        
+        # CBP fields (either from CBP columns or mapped from China Post columns)
+        carrier_code=str(row.get('Carrier Code', row.get('航司(Airline)', ''))),
+        arrival_port_code=str(row.get('Arrival Port Code', row.get('*目的站（Destination）', ''))),
+        arrival_date=str(row.get('Arrival Date', row.get('航班日期 (Flight Date)', ''))),
+        declared_value_usd=str(row.get('Declared Value (USD)', '')),
+        tracking_number=str(row.get('Tracking Number', row.get('*运单号 (AWB Number)', '')))
+    )
+    db.session.add(entry)
+
 def create_china_post_output(df):
-    """Create China Post output Excel file"""
+    """Create China Post output Excel file and save to database"""
     # Filter data
     cp_df = df[CP_COLUMNS].copy()
     cp_df = filter_cp_data(cp_df)
@@ -160,7 +260,7 @@ def create_china_post_output(df):
     return output
 
 def create_cbp_output(df):
-    """Create CBP output Excel file"""
+    """Create CBP output Excel file and save to database"""
     # Extract CBP data
     cbp_df = df[CBP_COLUMNS].copy()
     
@@ -248,7 +348,7 @@ def process_data():
         
         # Generate both files
         results = {}
-        
+            
         if not missing_cp_cols:
             cp_output = create_china_post_output(df)
             results["china_post"] = {
@@ -273,11 +373,23 @@ def process_data():
                 "missing_columns": missing_cbp_cols
             }
         
+        #update database
+        new_entries = 0
+        skipped_entries = 0
+        for _, row in df.iterrows():
+            if save_to_database(row):
+                new_entries += 1
+            else:
+                skipped_entries += 1
+        db.session.commit()
+
         return jsonify({
             "success": True,
             "message": "Data processed successfully",
             "results": results,
-            "total_records": len(df)
+            "total_records": len(df),
+            "new_entries": new_entries,
+            "skipped_duplicates": skipped_entries
         })
         
     except Exception as e:
