@@ -22,26 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             {/* Desktop Header */}
             <div className="hidden md:flex h-16 items-center justify-between">
-              {/* Navigation Links */}
-              <nav className="flex items-center space-x-8">
-                {navigation.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.path;
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.path}
-                      className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium ${
-                        isActive
-                          ? 'text-cathay-teal bg-cathay-teal/10'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                      }`}
-                    >
-                      <Icon className="h-5 w-5" />
-                      <span>{item.name}</span>
-                    </Link>
-                  );
-                })}
+              {/* Logo and Title - Left Side */}
               <div className="flex items-center space-x-6">
                 <img 
                   src="/cathay-logo.svg" 
@@ -60,9 +41,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   </div>
                 </div>
               </div>
-              </nav>
               
-              <div className="flex items-center">
+              {/* Navigation and Version - Right Side */}
+              <div className="flex items-center space-x-6">
+                {/* Navigation Links */}
+                <nav className="flex items-center space-x-4">
+                  {navigation.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <Link
+                        key={item.name}
+                        to={item.path}
+                        className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium ${
+                          isActive
+                            ? 'text-cathay-teal bg-cathay-teal/10'
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span>{item.name}</span>
+                      </Link>
+                    );
+                  })}
+                </nav>
+                
+                {/* Version Info */}
                 <div className="text-right space-y-1">
                   <p className="text-xs text-cathay-neutral-darkgreyishblue font-medium leading-none">
                     Version 1.0.0

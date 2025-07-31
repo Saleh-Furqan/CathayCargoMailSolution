@@ -320,6 +320,26 @@ const HistoricalData: React.FC = () => {
           onClose={() => setNotification(null)}
         />
       )}
+
+      {/* Quick Actions - Always visible when data is available */}
+      {historicalData.length > 0 && (
+        <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
+          <button 
+            onClick={handleGenerateChinaPost}
+            className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
+          >
+            <Plane className="h-4 w-4" />
+            <span>China Post</span>
+          </button>
+          <button 
+            onClick={handleGenerateCBP}
+            className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
+          >
+            <Building className="h-4 w-4" />
+            <span>CBP Report</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
