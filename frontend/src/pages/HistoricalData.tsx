@@ -14,13 +14,14 @@ import { downloadBlob } from '../services/api';
 import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
+import TariffSection from '../components/TariffSection/TariffSection';
 import Notification from '../components/Notification/Notification';
 
 const HistoricalData: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'cbp' | 'china-post'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'cbp' | 'china-post' | 'tariff'>('overview');
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [processResult, setProcessResult] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -58,30 +59,42 @@ const HistoricalData: React.FC = () => {
       const response = await apiService.getHistoricalData(startDate, endDate);
       
       // Format data for consistency with ingestion format
-      const formattedData = response.data.map(item => ({
-        '*运单号 (AWB Number)': item.awb_number,
-        '*始发站（Departure station）': item.departure_station,
-        '*目的站（Destination）': item.destination,
-        '*件数(Pieces)': parseFloat(item.pieces || 0),
-        '*重量 (Weight)': parseFloat(item.weight || 0),
-        '航司(Airline)': item.airline,
-        '航班号 (Flight Number)': item.flight_number,
-        '航班日期 (Flight Date)': item.flight_date,
-        '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
-        '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
-        '*运价类型 (Rate Type)': item.rate_type,
-        '*费率 (Rate)': parseFloat(item.rate || 0),
-        '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
-        "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
-        "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
-        '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
-        'Carrier Code': item.carrier_code || item.airline,
-        'Flight/ Trip Number': item.flight_number,
-        'Tracking Number': item.tracking_number || item.awb_number,
-        'Arrival Port Code': item.arrival_port_code || item.destination,
-        'Arrival Date': item.arrival_date || item.flight_date,
-        'Declared Value (USD)': item.declared_value_usd || parseFloat(item.total_charges || 0)
-      }));
+      const formattedData = response.data.map(item => {
+        const declaredValue = parseFloat(item.declared_value_usd || item.total_charges || 0);
+        const tariffRate = parseFloat(item.tariff_rate || 50); // Default tariff rate if not provided
+        const tariffAmount = (declaredValue * tariffRate) / 100;
+        
+        return {
+          '*运单号 (AWB Number)': item.awb_number,
+          '*始发站（Departure station）': item.departure_station,
+          '*目的站（Destination）': item.destination,
+          '*件数(Pieces)': parseFloat(item.pieces || 0),
+          '*重量 (Weight)': parseFloat(item.weight || 0),
+          '航司(Airline)': item.airline,
+          '航班号 (Flight Number)': item.flight_number,
+          '航班日期 (Flight Date)': item.flight_date,
+          '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
+          '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
+          '*运价类型 (Rate Type)': item.rate_type,
+          '*费率 (Rate)': parseFloat(item.rate || 0),
+          '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
+          "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
+          "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
+          '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
+          'Carrier Code': item.carrier_code || item.airline,
+          'Flight/ Trip Number': item.flight_number,
+          'Tracking Number': item.tracking_number || item.awb_number,
+          'Arrival Port Code': item.arrival_port_code || item.destination,
+          'Arrival Date': item.arrival_date || item.flight_date,
+          'Declared Value (USD)': declaredValue,
+          // Tariff-specific fields for TariffSection component
+          declared_value_usd: declaredValue.toString(),
+          departure_station: item.departure_station,
+          destination: item.destination,
+          tariff_rate: tariffRate,
+          tariff_amount: tariffAmount
+        };
+      });
 
       setHistoricalData(formattedData);
 
@@ -159,6 +172,7 @@ const HistoricalData: React.FC = () => {
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
     { id: 'cbp', name: 'CBP Report', icon: Building },
     { id: 'china-post', name: 'China Post', icon: Plane },
+    { id: 'tariff', name: 'Tariff Analysis', icon: Filter },
   ];
 
   return (
@@ -356,6 +370,13 @@ const HistoricalData: React.FC = () => {
               data={historicalData}
               isAvailable={true}
               onDownload={handleGenerateChinaPost}
+            />
+          )}
+          {activeTab === 'tariff' && (
+            <TariffSection
+              data={historicalData}
+              title="Historical Tariff Analysis"
+              showDetails={true}
             />
           )}
         </div>

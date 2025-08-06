@@ -74,6 +74,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       return sum + (value || 0);
     }, 0);
 
+    // Calculate tariff analytics
+    const totalTariffAmount = data.reduce((sum, item) => sum + (item.tariff_amount || 0), 0);
+    const averageTariffRate = data.length > 0 
+      ? data.reduce((sum, item) => sum + (item.tariff_rate || 50), 0) / data.length 
+      : 50;
+
     // Group by airline
     const airlineData = data.reduce((acc, item) => {
       const airline = item['航司(Airline)'] || 'Unknown';
@@ -90,11 +96,24 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
     const destinationData = data.reduce((acc, item) => {
       const dest = item['*目的站（Destination）'] || 'Unknown';
       if (!acc[dest]) {
-        acc[dest] = { name: dest, packages: 0, weight: 0, value: 0, totalRate: 0, count: 0 };
+        acc[dest] = { 
+          name: dest, 
+          packages: 0, 
+          weight: 0, 
+          value: 0, 
+          totalRate: 0, 
+          count: 0,
+          originalCharges: 0,
+          tariffAmount: 0,
+          totalTariffRate: 0
+        };
       }
       acc[dest].packages += item['*件数(Pieces)'] || 0;
       acc[dest].weight += item['*重量 (Weight)'] || 0;
       acc[dest].totalRate += item['*费率 (Rate)'] || 0;
+      acc[dest].originalCharges += item['*总运费 (Total Charges)'] || 0;
+      acc[dest].tariffAmount += item.tariff_amount || 0;
+      acc[dest].totalTariffRate += item.tariff_rate || 50;
       acc[dest].count += 1;
       const declaredValue = item['Declared Value (USD)'];
       if (typeof declaredValue === 'string') {
@@ -108,7 +127,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
     // Calculate average rates for destinations
     const destinationDataWithAvg = Object.values(destinationData).map((dest: any) => ({
       ...dest,
-      avgRate: dest.count > 0 ? Math.round((dest.totalRate / dest.count) * 100) / 100 : 0
+      avgRate: dest.count > 0 ? Math.round((dest.totalRate / dest.count) * 100) / 100 : 0,
+      avgTariffRate: dest.count > 0 ? Math.round((dest.totalTariffRate / dest.count) * 100) / 100 : 50,
+      totalWithTariff: Math.round((dest.originalCharges + dest.tariffAmount) * 100) / 100
     }));
 
     // Group by rate type
@@ -127,8 +148,11 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       totalWeight: Math.round(totalWeight * 100) / 100,
       totalCharges: Math.round(totalCharges * 100) / 100,
       totalDeclaredValue: Math.round(totalDeclaredValue * 100) / 100,
+      totalTariffAmount: Math.round(totalTariffAmount * 100) / 100,
+      averageTariffRate: Math.round(averageTariffRate * 100) / 100,
       averageWeight: Math.round((totalWeight / data.length) * 100) / 100,
       averageValue: Math.round((totalDeclaredValue / data.length) * 100) / 100,
+      tariffEfficiency: totalDeclaredValue > 0 ? Math.round((totalTariffAmount / totalDeclaredValue) * 10000) / 100 : 0,
       airlineData: Object.values(airlineData),
       destinationData: destinationDataWithAvg,
       rateTypeData: Object.values(rateTypeData),
@@ -188,6 +212,28 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
           value={`$${analytics.totalDeclaredValue.toLocaleString()}`}
           icon={Globe}
           color="bg-orange-500"
+        />
+      </div>
+
+      {/* Tariff Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <StatCard
+          title="Total Tariff Amount"
+          value={`$${analytics.totalTariffAmount.toLocaleString()}`}
+          icon={DollarSign}
+          color="bg-red-500"
+        />
+        <StatCard
+          title="Average Tariff Rate"
+          value={`${analytics.averageTariffRate}%`}
+          icon={TrendingUp}
+          color="bg-amber-500"
+        />
+        <StatCard
+          title="Tariff Efficiency"
+          value={`${analytics.tariffEfficiency}%`}
+          icon={Package}
+          color="bg-emerald-500"
         />
       </div>
 
@@ -274,89 +320,78 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
         </div>
       )}
 
-      {/* Charts */}
+      {/* Tariff Impact Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* Revenue by Destination */}
+        {/* Original vs Tariff-Adjusted Charges */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Revenue by Destination</h3>
-          <ResponsiveContainer width="100%" height={300}>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Original Charges vs Tariff Impact</h3>
+          <ResponsiveContainer width="100%" height={350}>
             <BarChart data={analytics.destinationData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Revenue']} />
-              <Bar dataKey="value" fill="#3B82F6" />
+              <Tooltip 
+                formatter={(value, name) => [
+                  `$${Number(value).toLocaleString()}`, 
+                  name === 'originalCharges' ? 'Original Charges' : 
+                  name === 'tariffAmount' ? 'Tariff Amount' : 'Total with Tariff'
+                ]} 
+              />
+              <Bar dataKey="originalCharges" fill="#3B82F6" name="Original Charges" />
+              <Bar dataKey="tariffAmount" fill="#EF4444" name="Tariff Amount" />
+              <Bar dataKey="totalWithTariff" fill="#8B5CF6" name="Total with Tariff" />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Package Distribution by Destination */}
+        {/* Tariff Rate vs Impact Analysis */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Package Distribution by Destination</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={analytics.destinationData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, packages }) => `${name}: ${packages}`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="packages"
-              >
-                {analytics.destinationData.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Average Tariff Rate by Destination */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Average Tariff Rate by Destination</h3>
-          <ResponsiveContainer width="100%" height={300}>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Tariff Rate Impact by Destination</h3>
+          <ResponsiveContainer width="100%" height={350}>
             <BarChart data={analytics.destinationData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip formatter={(value) => [`$${Number(value).toFixed(2)}/kg`, 'Avg Rate']} />
-              <Bar dataKey="avgRate" fill="#10B981" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Weight Distribution by Destination */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Weight Distribution by Destination</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={analytics.destinationData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip formatter={(value) => [`${Number(value).toLocaleString()} kg`, 'Total Weight']} />
-              <Bar dataKey="weight" fill="#8B5CF6" />
+              <YAxis yAxisId="left" />
+              <YAxis yAxisId="right" orientation="right" />
+              <Tooltip 
+                formatter={(value, name) => [
+                  name === 'avgTariffRate' ? `${Number(value).toFixed(1)}%` : `$${Number(value).toLocaleString()}`,
+                  name === 'avgTariffRate' ? 'Avg Tariff Rate' : 'Tariff Amount'
+                ]} 
+              />
+              <Bar yAxisId="left" dataKey="tariffAmount" fill="#F59E0B" name="Tariff Amount ($)" />
+              <Bar yAxisId="right" dataKey="avgTariffRate" fill="#10B981" name="Avg Rate (%)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Tariff Analysis */}
+      {/* Cost Impact Analysis */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Revenue vs Weight Efficiency by Destination</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={analytics.destinationData}>
+        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Financial Impact: Before vs After Tariffs</h3>
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart data={analytics.destinationData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" />
-            <YAxis yAxisId="left" />
-            <YAxis yAxisId="right" orientation="right" />
-            <Tooltip />
-            <Bar yAxisId="left" dataKey="value" fill="#3B82F6" name="Revenue ($)" />
-            <Bar yAxisId="right" dataKey="avgRate" fill="#F59E0B" name="Rate ($/kg)" />
+            <YAxis />
+            <Tooltip 
+              formatter={(value, name) => [
+                `$${Number(value).toLocaleString()}`,
+                name === 'originalCharges' ? 'Original Charges' : 
+                name === 'totalWithTariff' ? 'Total with Tariff' : 'Additional Cost'
+              ]}
+            />
+            <Bar dataKey="originalCharges" fill="#22C55E" name="Original Charges" />
+            <Bar dataKey="totalWithTariff" fill="#EF4444" name="Total with Tariff" />
           </BarChart>
         </ResponsiveContainer>
+        <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-sm text-amber-800">
+            <strong>Financial Impact:</strong> Total additional cost due to tariffs: 
+            <span className="font-bold text-amber-900"> ${analytics.totalTariffAmount.toLocaleString()}</span>
+            {' '}({analytics.tariffEfficiency}% increase from original charges)
+          </p>
+        </div>
       </div>
     </div>
   );

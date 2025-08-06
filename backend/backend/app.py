@@ -6,7 +6,7 @@ from openpyxl.styles import Font, Alignment, Border, Side
 import io
 import os
 from datetime import datetime, timedelta
-from models import db, ShipmentEntry
+from models import db, ShipmentEntry, Country, TariffRate
 from config import Config
 from sqlalchemy import func, and_
 
@@ -466,5 +466,193 @@ def get_columns():
         "total_unique_columns": list(set(CP_COLUMNS + CBP_COLUMNS))
     })
 
+def initialize_default_countries():
+    """Initialize default countries and tariff rates"""
+    default_countries = [
+        {'code': 'USA', 'name': 'United States'},
+        {'code': 'CHN', 'name': 'China'},
+        {'code': 'HKG', 'name': 'Hong Kong'},
+        {'code': 'TWN', 'name': 'Taiwan'},
+        {'code': 'JPN', 'name': 'Japan'},
+        {'code': 'KOR', 'name': 'South Korea'},
+        {'code': 'SGP', 'name': 'Singapore'},
+        {'code': 'THA', 'name': 'Thailand'},
+        {'code': 'MYS', 'name': 'Malaysia'},
+        {'code': 'IDN', 'name': 'Indonesia'},
+        {'code': 'PHL', 'name': 'Philippines'},
+        {'code': 'VNM', 'name': 'Vietnam'},
+        {'code': 'GBR', 'name': 'United Kingdom'},
+        {'code': 'DEU', 'name': 'Germany'},
+        {'code': 'FRA', 'name': 'France'},
+        {'code': 'AUS', 'name': 'Australia'},
+        {'code': 'CAN', 'name': 'Canada'},
+    ]
+    
+    for country_data in default_countries:
+        existing = Country.query.filter_by(code=country_data['code']).first()
+        if not existing:
+            country = Country(code=country_data['code'], name=country_data['name'])
+            db.session.add(country)
+    
+    db.session.commit()
+    
+    # Create default tariff rates (50%) for all country pairs
+    countries = Country.query.all()
+    for origin in countries:
+        for destination in countries:
+            if origin.id != destination.id:  # Don't create self-rates
+                existing_rate = TariffRate.query.filter_by(
+                    origin_country_id=origin.id,
+                    destination_country_id=destination.id
+                ).first()
+                
+                if not existing_rate:
+                    rate = TariffRate(
+                        origin_country_id=origin.id,
+                        destination_country_id=destination.id,
+                        rate_percentage=50.0,
+                        is_custom=False
+                    )
+                    db.session.add(rate)
+    
+    db.session.commit()
+
+@app.route('/countries', methods=['GET'])
+def get_countries():
+    """Get all countries"""
+    countries = Country.query.all()
+    return jsonify([country.to_dict() for country in countries])
+
+@app.route('/tariff-rates', methods=['GET'])
+def get_tariff_rates():
+    """Get all tariff rates"""
+    rates = TariffRate.query.all()
+    return jsonify([rate.to_dict() for rate in rates])
+
+@app.route('/tariff-rates/<int:origin_id>/<int:destination_id>', methods=['GET'])
+def get_specific_tariff_rate(origin_id, destination_id):
+    """Get tariff rate between specific countries"""
+    rate = TariffRate.query.filter_by(
+        origin_country_id=origin_id,
+        destination_country_id=destination_id
+    ).first()
+    
+    if rate:
+        return jsonify(rate.to_dict())
+    else:
+        return jsonify({'error': 'Tariff rate not found'}), 404
+
+@app.route('/tariff-rates', methods=['POST'])
+def update_tariff_rate():
+    """Update or create a tariff rate"""
+    try:
+        data = request.json
+        origin_id = data.get('origin_country_id')
+        destination_id = data.get('destination_country_id')
+        rate_percentage = data.get('rate_percentage')
+        
+        if not all([origin_id, destination_id, rate_percentage is not None]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Validate rate percentage
+        if not (0 <= rate_percentage <= 100):
+            return jsonify({'error': 'Rate percentage must be between 0 and 100'}), 400
+        
+        # Check if rate exists
+        existing_rate = TariffRate.query.filter_by(
+            origin_country_id=origin_id,
+            destination_country_id=destination_id
+        ).first()
+        
+        if existing_rate:
+            existing_rate.rate_percentage = rate_percentage
+            existing_rate.is_custom = True
+            existing_rate.last_updated = datetime.utcnow()
+        else:
+            new_rate = TariffRate(
+                origin_country_id=origin_id,
+                destination_country_id=destination_id,
+                rate_percentage=rate_percentage,
+                is_custom=True
+            )
+            db.session.add(new_rate)
+        
+        db.session.commit()
+        
+        # Return the updated/created rate
+        rate = TariffRate.query.filter_by(
+            origin_country_id=origin_id,
+            destination_country_id=destination_id
+        ).first()
+        
+        return jsonify(rate.to_dict())
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates/reset', methods=['POST'])
+def reset_tariff_rates():
+    """Reset all tariff rates to default 50%"""
+    try:
+        TariffRate.query.update({
+            'rate_percentage': 50.0,
+            'is_custom': False,
+            'last_updated': datetime.utcnow()
+        })
+        db.session.commit()
+        return jsonify({'message': 'All tariff rates reset to 50%'})
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-summary', methods=['GET'])
+def get_tariff_summary():
+    """Get summary of tariff rates and shipment calculations"""
+    try:
+        # Get total shipments and their tariff calculations
+        shipments = ShipmentEntry.query.all()
+        
+        total_shipments = len(shipments)
+        
+        # Calculate total declared value with proper currency handling
+        total_declared_value = 0
+        for s in shipments:
+            try:
+                declared_value_str = str(s.declared_value_usd or '0')
+                # Remove common currency symbols and spaces
+                cleaned_value = declared_value_str.replace('$', '').replace(',', '').replace(' ', '')
+                total_declared_value += float(cleaned_value)
+            except (ValueError, TypeError):
+                pass  # Skip invalid values
+        
+        total_tariff_amount = sum(s.calculate_tariff_amount() for s in shipments)
+        
+        # Get count of custom vs default rates
+        total_rates = TariffRate.query.count()
+        custom_rates = TariffRate.query.filter_by(is_custom=True).count()
+        default_rates = total_rates - custom_rates
+        
+        return jsonify({
+            'shipment_summary': {
+                'total_shipments': total_shipments,
+                'total_declared_value': total_declared_value,
+                'total_tariff_amount': total_tariff_amount,
+                'average_tariff_rate': (total_tariff_amount / total_declared_value * 100) if total_declared_value > 0 else 0
+            },
+            'rate_summary': {
+                'total_rates': total_rates,
+                'custom_rates': custom_rates,
+                'default_rates': default_rates
+            }
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
+    # Initialize default countries and rates
+    with app.app_context():
+        initialize_default_countries()
     app.run(debug=True, host='0.0.0.0', port=5001)

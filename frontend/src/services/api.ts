@@ -18,25 +18,40 @@ export interface HistoricalDataResponse {
 export interface ProcessDataResponse {
   success: boolean;
   message: string;
+  data: any[];
+  total_records: number;
   results: {
     china_post: {
       available: boolean;
+      required_columns: string[];
+      missing_columns: string[];
       records_processed?: number;
-      missing_columns?: string[];
     };
     cbp: {
       available: boolean;
+      required_columns: string[];
+      missing_columns: string[];
       records_processed?: number;
-      missing_columns?: string[];
     };
   };
-  total_records: number;
 }
 
 export interface ColumnsResponse {
   china_post_columns: string[];
   cbp_columns: string[];
   total_unique_columns: string[];
+}
+
+export interface DataFile {
+  id: string;
+  name: string;
+  size: number;
+  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error';
+  progress: number;
+  lastModified: number;
+  preview?: any[];
+  processResult?: ProcessDataResponse;
+  error?: string;
 }
 
 class ApiService {
@@ -113,15 +128,52 @@ class ApiService {
       body: JSON.stringify({ startDate, endDate }),
     });
   }
+
+  async getCountries() {
+    return this.request('/countries');
+  }
+
+  async getTariffRates() {
+    return this.request('/tariff-rates');
+  }
+
+  async getTariffSummary() {
+    return this.request('/tariff-summary');
+  }
+
+  async updateTariffRate(data: {
+    origin_country_id: number;
+    destination_country_id: number;
+    rate_percentage: number;
+  }) {
+    return this.request('/tariff-rates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resetTariffRates() {
+    return this.request('/tariff-rates/reset', {
+      method: 'POST',
+    });
+  }
+
+  async getTariffRate(originCountry: string, destinationCountry: string): Promise<number> {
+    try {
+      const response = await this.request<{rate: number}>(`/tariff-rate/${originCountry}/${destinationCountry}`);
+      return response.rate;
+    } catch (error) {
+      console.warn(`Could not fetch tariff rate for ${originCountry} -> ${destinationCountry}, using default`);
+      return 50; // Default rate
+    }
+  }
 }
 
 export const apiService = new ApiService();
 
-// Utility function to read Excel files
 export const readExcelFile = (file: File): Promise<any[]> => {
   return new Promise(async (resolve, reject) => {
     try {
-      // Dynamically import XLSX
       const XLSX = await import('xlsx');
       
       const reader = new FileReader();
@@ -148,7 +200,6 @@ export const readExcelFile = (file: File): Promise<any[]> => {
   });
 };
 
-// Utility function to download blob as file
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mail, Upload, Clock } from 'lucide-react';
+import { Mail, Upload, Clock, Settings } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface LayoutProps {
@@ -12,6 +12,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigation = [
     { name: 'Data Processing', path: '/data-processing', icon: Upload },
     { name: 'Historical Data', path: '/historical-data', icon: Clock },
+    { name: 'Tariff Management', path: '/tariff-management', icon: Settings },
   ];
 
   return (

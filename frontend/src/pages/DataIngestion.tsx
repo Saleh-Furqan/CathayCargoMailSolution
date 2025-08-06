@@ -19,6 +19,7 @@ import { apiService, readExcelFile, downloadBlob, ProcessDataResponse, ColumnsRe
 import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
+import TariffSection from '../components/TariffSection/TariffSection';
 import Notification from '../components/Notification/Notification';
 
 const DataIngestion: React.FC = () => {
@@ -29,7 +30,7 @@ const DataIngestion: React.FC = () => {
   const [processResult, setProcessResult] = useState<ProcessDataResponse | null>(null);
   const [columns, setColumns] = useState<ColumnsResponse | null>(null);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
-  const [activeTab, setActiveTab] = useState<'upload' | 'dashboard' | 'cbp' | 'china-post'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'dashboard' | 'cbp' | 'china-post' | 'tariff'>('upload');
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -61,13 +62,30 @@ const DataIngestion: React.FC = () => {
 
       // Read Excel file
       console.log('Reading Excel file...');
-      const data = await readExcelFile(file);
-      console.log('Excel data loaded:', data.length, 'rows');
-      setProcessedData(data);
+      const rawData = await readExcelFile(file);
+      console.log('Excel data loaded:', rawData.length, 'rows');
+      
+      // Enhance data with tariff calculations
+      const enhancedData = rawData.map(item => {
+        const declaredValue = parseFloat(item['Declared Value (USD)'] || item['*总运费 (Total Charges)'] || 0);
+        const tariffRate = 50; // Default tariff rate, can be customized based on route
+        const tariffAmount = (declaredValue * tariffRate) / 100;
+        
+        return {
+          ...item,
+          declared_value_usd: declaredValue.toString(),
+          departure_station: item['*始发站（Departure station）'] || '',
+          destination: item['*目的站（Destination）'] || '',
+          tariff_rate: tariffRate,
+          tariff_amount: tariffAmount
+        };
+      });
+      
+      setProcessedData(enhancedData);
 
       // Process data with backend
       console.log('Sending data to backend...');
-      const result = await apiService.processData(data);
+      const result = await apiService.processData(enhancedData);
       console.log('Backend processing result:', result);
       setProcessResult(result);
 
@@ -248,6 +266,7 @@ const DataIngestion: React.FC = () => {
     { id: 'dashboard', name: 'Analytics', icon: BarChart3, disabled: !processedData.length },
     { id: 'cbp', name: 'CBP Section', icon: Building, disabled: !processResult?.results.cbp.available },
     { id: 'china-post', name: 'China Post', icon: Plane, disabled: !processResult?.results.china_post.available },
+    { id: 'tariff', name: 'Tariff Analysis', icon: RefreshCw, disabled: !processedData.length },
   ];
 
   return (
@@ -646,8 +665,17 @@ const DataIngestion: React.FC = () => {
         />
       )}
 
-      {/* Quick Actions - Only visible when data is processed and not on CBP or China Post tabs */}
-      {processedData.length > 0 && activeTab !== 'cbp' && activeTab !== 'china-post' && (
+      {/* Tariff Analysis Tab */}
+      {activeTab === 'tariff' && (
+        <TariffSection 
+          data={processedData} 
+          title="Current Data Tariff Analysis"
+          showDetails={true}
+        />
+      )}
+
+      {/* Quick Actions - Only visible when data is processed and not on CBP, China Post, or Tariff tabs */}
+      {processedData.length > 0 && activeTab !== 'cbp' && activeTab !== 'china-post' && activeTab !== 'tariff' && (
         <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
           {processResult?.results.china_post.available && (
             <button 
