@@ -120,6 +120,13 @@ class ApiService {
       body: JSON.stringify({ ids }),
     });
   }
+
+  async updateRecord(id: number, updates: Record<string, any>): Promise<{ message: string; updated_fields: string[]; record: any }> {
+    return this.request('/update-record', {
+      method: 'PUT',
+      body: JSON.stringify({ id, updates }),
+    });
+  }
 }
 
 export const apiService = new ApiService();
