@@ -646,30 +646,6 @@ const DataIngestion: React.FC = () => {
         />
       )}
 
-      {/* Quick Actions - Only visible when data is processed and not on CBP or China Post tabs */}
-      {processedData.length > 0 && activeTab !== 'cbp' && activeTab !== 'china-post' && (
-        <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
-          {processResult?.results.china_post.available && (
-            <button 
-              onClick={handleGenerateChinaPost}
-              className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>China Post</span>
-            </button>
-          )}
-          {processResult?.results.cbp.available && (
-            <button 
-              onClick={handleGenerateCBP}
-              className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>CBP Report</span>
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Notification */}
       {notification && (
         <Notification
