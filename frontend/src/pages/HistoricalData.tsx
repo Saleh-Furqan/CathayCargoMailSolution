@@ -7,7 +7,12 @@ import {
   BarChart3,
   Filter,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Edit3,
+  Trash2,
+  X,
+  Save,
+  RotateCcw
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { downloadBlob } from '../services/api';
@@ -15,6 +20,44 @@ import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
 import Notification from '../components/Notification/Notification';
+
+interface EditableCellProps {
+  value: any;
+  field: string;
+  recordId: number;
+  isEditing: boolean;
+  onChange: (recordId: number, field: string, value: any) => void;
+}
+
+const EditableCell: React.FC<EditableCellProps> = ({ value, field, recordId, isEditing, onChange }) => {
+  if (!isEditing) {
+    return (
+      <span>
+        {field === '*总运费 (Total Charges)' && typeof value === 'number' 
+          ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+          : String(value || '')
+        }
+      </span>
+    );
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = field === '*总运费 (Total Charges)' || field === '*重量 (Weight)' 
+      ? parseFloat(e.target.value) || 0 
+      : e.target.value;
+    onChange(recordId, field, newValue);
+  };
+
+  return (
+    <input
+      type={field === '*总运费 (Total Charges)' || field === '*重量 (Weight)' ? 'number' : 'text'}
+      value={value || ''}
+      onChange={handleChange}
+      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      autoFocus
+    />
+  );
+};
 
 const HistoricalData: React.FC = () => {
   const [startDate, setStartDate] = useState('');
@@ -25,6 +68,12 @@ const HistoricalData: React.FC = () => {
   const [processResult, setProcessResult] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage] = useState(10);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedRecords, setSelectedRecords] = useState<Set<number>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [editingRows, setEditingRows] = useState<Set<number>>(new Set());
+  const [editedData, setEditedData] = useState<Record<number, Record<string, any>>>({});
+  const [savingRows, setSavingRows] = useState<Set<number>>(new Set());
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -39,7 +88,20 @@ const HistoricalData: React.FC = () => {
   // Reset to first page when data changes
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedRecords(new Set()); // Clear selections when data changes
+    setEditingRows(new Set()); // Clear editing state when data changes
+    setEditedData({}); // Clear edited data when data changes
   }, [historicalData]);
+
+  // Clear selections and exit edit mode when switching tabs
+  useEffect(() => {
+    setSelectedRecords(new Set());
+    setEditingRows(new Set());
+    setEditedData({});
+    if (activeTab !== 'overview') {
+      setIsEditMode(false);
+    }
+  }, [activeTab]);
 
   // Load initial data on component mount
   useEffect(() => {
@@ -59,6 +121,7 @@ const HistoricalData: React.FC = () => {
       
       // Format data for consistency with ingestion format
       const formattedData = response.data.map(item => ({
+        id: item.id, // Include database ID for deletion
         '*运单号 (AWB Number)': item.awb_number,
         '*始发站（Departure station）': item.departure_station,
         '*目的站（Destination）': item.destination,
@@ -154,6 +217,155 @@ const HistoricalData: React.FC = () => {
     }
   };
 
+  const handleToggleEditMode = () => {
+    setIsEditMode(!isEditMode);
+    setSelectedRecords(new Set()); // Clear selections when toggling edit mode
+    setEditingRows(new Set()); // Clear editing state when toggling edit mode
+    setEditedData({}); // Clear edited data when toggling edit mode
+  };
+
+  const handleStartRowEdit = (recordId: number, record: any) => {
+    const newEditingRows = new Set(editingRows);
+    newEditingRows.add(recordId);
+    setEditingRows(newEditingRows);
+    
+    // Initialize edited data for this row
+    const editableFields = [
+      '*运单号 (AWB Number)',
+      '航班日期 (Flight Date)',
+      '*目的站（Destination）',
+      '*重量 (Weight)',
+      '*总运费 (Total Charges)'
+    ];
+    
+    const initialData: Record<string, any> = {};
+    editableFields.forEach(field => {
+      initialData[field] = record[field];
+    });
+    
+    setEditedData(prev => ({
+      ...prev,
+      [recordId]: initialData
+    }));
+  };
+
+  const handleCancelRowEdit = (recordId: number) => {
+    const newEditingRows = new Set(editingRows);
+    newEditingRows.delete(recordId);
+    setEditingRows(newEditingRows);
+    
+    // Remove edited data for this row
+    setEditedData(prev => {
+      const newData = { ...prev };
+      delete newData[recordId];
+      return newData;
+    });
+  };
+
+  const handleFieldChange = (recordId: number, field: string, value: any) => {
+    setEditedData(prev => ({
+      ...prev,
+      [recordId]: {
+        ...prev[recordId],
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSaveRow = async (recordId: number) => {
+    if (!editedData[recordId]) return;
+
+    try {
+      setSavingRows(prev => new Set(prev).add(recordId));
+      
+      await apiService.updateRecord(recordId, editedData[recordId]);
+      
+      setNotification({
+        message: 'Record updated successfully',
+        type: 'success'
+      });
+
+      // Update the local data
+      setHistoricalData(prev => prev.map(record => 
+        record.id === recordId 
+          ? { ...record, ...editedData[recordId] }
+          : record
+      ));
+
+      // Exit edit mode for this row
+      handleCancelRowEdit(recordId);
+    } catch (error) {
+      console.error('Error updating record:', error);
+      setNotification({
+        message: `Error updating record: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
+    } finally {
+      setSavingRows(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(recordId);
+        return newSet;
+      });
+    }
+  };
+
+  const handleRecordSelect = (recordId: number, isSelected: boolean) => {
+    const newSelectedRecords = new Set(selectedRecords);
+    if (isSelected) {
+      newSelectedRecords.add(recordId);
+    } else {
+      newSelectedRecords.delete(recordId);
+    }
+    setSelectedRecords(newSelectedRecords);
+  };
+
+  const handleSelectAll = (isSelected: boolean) => {
+    if (isSelected) {
+      const allIds = new Set(currentRecords.map(record => record.id));
+      setSelectedRecords(allIds);
+    } else {
+      setSelectedRecords(new Set());
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedRecords.size === 0) {
+      setNotification({
+        message: 'No records selected for deletion',
+        type: 'warning'
+      });
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedRecords.size} selected record(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const ids = Array.from(selectedRecords);
+      const response = await apiService.deleteRecords(ids);
+      
+      setNotification({
+        message: response.message,
+        type: 'success'
+      });
+
+      // Refresh data after deletion
+      await fetchHistoricalData();
+      setSelectedRecords(new Set());
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Error deleting records:', error);
+      setNotification({
+        message: `Error deleting records: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const tabs = [
     { id: 'overview', name: 'Overview', icon: Search },
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
@@ -164,11 +376,51 @@ const HistoricalData: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Historical Data Dashboard</h1>
-        <p className="mt-1 text-gray-600">
-          Analyze and track all shipment data over time
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Historical Data Dashboard</h1>
+          <p className="mt-1 text-gray-600">
+            Analyze and track all shipment data over time
+          </p>
+        </div>
+        {historicalData.length > 0 && activeTab === 'overview' && (
+          <div className="flex space-x-3">
+            <button
+              onClick={handleToggleEditMode}
+              className={`inline-flex items-center px-4 py-2 border rounded-md text-sm font-medium ${
+                isEditMode
+                  ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                  : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+              }`}
+            >
+              {isEditMode ? (
+                <>
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel Edit
+                </>
+              ) : (
+                <>
+                  <Edit3 className="h-4 w-4 mr-2" />
+                  Edit Records
+                </>
+              )}
+            </button>
+            {isEditMode && selectedRecords.size > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                disabled={isDeleting}
+                className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? (
+                  <Loader className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4 mr-2" />
+                )}
+                Delete Selected ({selectedRecords.size})
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Date Range Selector */}
@@ -245,6 +497,16 @@ const HistoricalData: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
+                      {isEditMode && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <input
+                            type="checkbox"
+                            checked={currentRecords.length > 0 && currentRecords.every(record => selectedRecords.has(record.id))}
+                            onChange={(e) => handleSelectAll(e.target.checked)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </th>
+                      )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         AWB Number
                       </th>
@@ -260,28 +522,115 @@ const HistoricalData: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Total Charges
                       </th>
+                      {isEditMode && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {currentRecords.map((record, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {record['*运单号 (AWB Number)']}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {record['航班日期 (Flight Date)']}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {record['*目的站（Destination）']}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {record['*重量 (Weight)']}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          ${record['*总运费 (Total Charges)'].toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    ))}
+                    {currentRecords.map((record, index) => {
+                      const isRowEditing = editingRows.has(record.id);
+                      const isRowSaving = savingRows.has(record.id);
+                      const rowData = isRowEditing ? { ...record, ...editedData[record.id] } : record;
+                      
+                      return (
+                        <tr key={record.id || index} className={`hover:bg-gray-50 ${selectedRecords.has(record.id) ? 'bg-blue-50' : ''} ${isRowEditing ? 'bg-yellow-50' : ''}`}>
+                          {isEditMode && (
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={selectedRecords.has(record.id)}
+                                onChange={(e) => handleRecordSelect(record.id, e.target.checked)}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                disabled={isRowEditing}
+                              />
+                            </td>
+                          )}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            <EditableCell
+                              value={rowData['*运单号 (AWB Number)']}
+                              field="*运单号 (AWB Number)"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <EditableCell
+                              value={rowData['航班日期 (Flight Date)']}
+                              field="航班日期 (Flight Date)"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <EditableCell
+                              value={rowData['*目的站（Destination）']}
+                              field="*目的站（Destination）"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <EditableCell
+                              value={rowData['*重量 (Weight)']}
+                              field="*重量 (Weight)"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <EditableCell
+                              value={rowData['*总运费 (Total Charges)']}
+                              field="*总运费 (Total Charges)"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          {isEditMode && (
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <div className="flex space-x-2">
+                                {isRowEditing ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSaveRow(record.id)}
+                                      disabled={isRowSaving}
+                                      className="inline-flex items-center px-2 py-1 border border-green-300 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      {isRowSaving ? (
+                                        <Loader className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Save className="h-3 w-3" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleCancelRowEdit(record.id)}
+                                      disabled={isRowSaving}
+                                      className="inline-flex items-center px-2 py-1 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      <RotateCcw className="h-3 w-3" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => handleStartRowEdit(record.id, record)}
+                                    className="inline-flex items-center px-2 py-1 border border-blue-300 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100"
+                                  >
+                                    <Edit3 className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -376,26 +725,6 @@ const HistoricalData: React.FC = () => {
           type={notification.type}
           onClose={() => setNotification(null)}
         />
-      )}
-
-      {/* Quick Actions - Only visible when data is available and not on CBP or China Post tabs */}
-      {historicalData.length > 0 && activeTab !== 'cbp' && activeTab !== 'china-post' && (
-        <div className="fixed bottom-6 right-6 flex flex-col space-y-3">
-          <button 
-            onClick={handleGenerateChinaPost}
-            className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
-          >
-            <Plane className="h-4 w-4" />
-            <span>China Post</span>
-          </button>
-          <button 
-            onClick={handleGenerateCBP}
-            className="btn-primary px-4 py-3 rounded-full shadow-lg flex items-center space-x-2"
-          >
-            <Building className="h-4 w-4" />
-            <span>CBP Report</span>
-          </button>
-        </div>
       )}
     </div>
   );
