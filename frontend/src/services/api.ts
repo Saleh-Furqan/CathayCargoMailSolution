@@ -113,6 +113,13 @@ class ApiService {
       body: JSON.stringify({ startDate, endDate }),
     });
   }
+
+  async deleteRecords(ids: number[]): Promise<{ message: string; deleted_count: number }> {
+    return this.request('/delete-records', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    });
+  }
 }
 
 export const apiService = new ApiService();

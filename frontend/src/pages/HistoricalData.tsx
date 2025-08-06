@@ -7,7 +7,10 @@ import {
   BarChart3,
   Filter,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Edit3,
+  Trash2,
+  X
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { downloadBlob } from '../services/api';
@@ -25,6 +28,9 @@ const HistoricalData: React.FC = () => {
   const [processResult, setProcessResult] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage] = useState(10);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedRecords, setSelectedRecords] = useState<Set<number>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -39,7 +45,16 @@ const HistoricalData: React.FC = () => {
   // Reset to first page when data changes
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedRecords(new Set()); // Clear selections when data changes
   }, [historicalData]);
+
+  // Clear selections and exit edit mode when switching tabs
+  useEffect(() => {
+    setSelectedRecords(new Set());
+    if (activeTab !== 'overview') {
+      setIsEditMode(false);
+    }
+  }, [activeTab]);
 
   // Load initial data on component mount
   useEffect(() => {
@@ -59,6 +74,7 @@ const HistoricalData: React.FC = () => {
       
       // Format data for consistency with ingestion format
       const formattedData = response.data.map(item => ({
+        id: item.id, // Include database ID for deletion
         '*运单号 (AWB Number)': item.awb_number,
         '*始发站（Departure station）': item.departure_station,
         '*目的站（Destination）': item.destination,
@@ -154,6 +170,68 @@ const HistoricalData: React.FC = () => {
     }
   };
 
+  const handleToggleEditMode = () => {
+    setIsEditMode(!isEditMode);
+    setSelectedRecords(new Set()); // Clear selections when toggling edit mode
+  };
+
+  const handleRecordSelect = (recordId: number, isSelected: boolean) => {
+    const newSelectedRecords = new Set(selectedRecords);
+    if (isSelected) {
+      newSelectedRecords.add(recordId);
+    } else {
+      newSelectedRecords.delete(recordId);
+    }
+    setSelectedRecords(newSelectedRecords);
+  };
+
+  const handleSelectAll = (isSelected: boolean) => {
+    if (isSelected) {
+      const allIds = new Set(currentRecords.map(record => record.id));
+      setSelectedRecords(allIds);
+    } else {
+      setSelectedRecords(new Set());
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedRecords.size === 0) {
+      setNotification({
+        message: 'No records selected for deletion',
+        type: 'warning'
+      });
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedRecords.size} selected record(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const ids = Array.from(selectedRecords);
+      const response = await apiService.deleteRecords(ids);
+      
+      setNotification({
+        message: response.message,
+        type: 'success'
+      });
+
+      // Refresh data after deletion
+      await fetchHistoricalData();
+      setSelectedRecords(new Set());
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Error deleting records:', error);
+      setNotification({
+        message: `Error deleting records: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const tabs = [
     { id: 'overview', name: 'Overview', icon: Search },
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
@@ -164,11 +242,49 @@ const HistoricalData: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Historical Data Dashboard</h1>
-        <p className="mt-1 text-gray-600">
-          Analyze and track all shipment data over time
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Historical Data Dashboard</h1>
+          <p className="mt-1 text-gray-600">
+            Analyze and track all shipment data over time
+          </p>
+        </div>
+        <div className="flex space-x-3">
+          <button
+            onClick={handleToggleEditMode}
+            className={`inline-flex items-center px-4 py-2 border rounded-md text-sm font-medium ${
+              isEditMode
+                ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+            }`}
+          >
+            {isEditMode ? (
+              <>
+                <X className="h-4 w-4 mr-2" />
+                Cancel Edit
+              </>
+            ) : (
+              <>
+                <Edit3 className="h-4 w-4 mr-2" />
+                Edit Records
+              </>
+            )}
+          </button>
+          {isEditMode && selectedRecords.size > 0 && (
+            <button
+              onClick={handleDeleteSelected}
+              disabled={isDeleting}
+              className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDeleting ? (
+                <Loader className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete Selected ({selectedRecords.size})
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Date Range Selector */}
@@ -245,6 +361,16 @@ const HistoricalData: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
+                      {isEditMode && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <input
+                            type="checkbox"
+                            checked={currentRecords.length > 0 && currentRecords.every(record => selectedRecords.has(record.id))}
+                            onChange={(e) => handleSelectAll(e.target.checked)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </th>
+                      )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         AWB Number
                       </th>
@@ -264,7 +390,17 @@ const HistoricalData: React.FC = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {currentRecords.map((record, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
+                      <tr key={record.id || index} className={`hover:bg-gray-50 ${selectedRecords.has(record.id) ? 'bg-blue-50' : ''}`}>
+                        {isEditMode && (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecords.has(record.id)}
+                              onChange={(e) => handleRecordSelect(record.id, e.target.checked)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                        )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {record['*运单号 (AWB Number)']}
                         </td>

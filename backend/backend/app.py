@@ -466,5 +466,34 @@ def get_columns():
         "total_unique_columns": list(set(CP_COLUMNS + CBP_COLUMNS))
     })
 
+@app.route('/delete-records', methods=['DELETE'])
+def delete_records():
+    """Delete multiple shipment records by IDs"""
+    try:
+        data = request.json
+        record_ids = data.get('ids', [])
+        
+        if not record_ids:
+            return jsonify({"error": "No record IDs provided"}), 400
+        
+        # Delete records
+        deleted_count = 0
+        for record_id in record_ids:
+            entry = ShipmentEntry.query.get(record_id)
+            if entry:
+                db.session.delete(entry)
+                deleted_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": f"Successfully deleted {deleted_count} records",
+            "deleted_count": deleted_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
