@@ -1,6 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout/Layout';
-import DataIngestion from './pages/DataIngestion';
 import DataIngestionSimple from './pages/DataIngestionSimple';
 import HistoricalData from './pages/HistoricalData';
 import TariffManagement from './pages/TariffManagement';

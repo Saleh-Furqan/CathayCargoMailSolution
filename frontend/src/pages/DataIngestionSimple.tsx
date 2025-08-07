@@ -8,7 +8,6 @@ import {
   BarChart3,
   Building,
   Plane,
-  Clock,
 } from 'lucide-react';
 import { apiService, downloadBlob } from '../services/api';
 import Dashboard from '../components/Dashboard/Dashboard';
@@ -20,8 +19,9 @@ const DataIngestionSimple: React.FC = () => {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
-  const [activeTab, setActiveTab] = useState<'upload' | 'analytics' | 'cbp' | 'china-post'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'analytics' | 'cbd' | 'chinapost'>('upload');
   const [processedData, setProcessedData] = useState<any[]>([]);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
 
   const fetchProcessedData = async () => {
     try {
@@ -33,39 +33,24 @@ const DataIngestionSimple: React.FC = () => {
       const response = await apiService.getHistoricalData(startDate, endDate);
       console.log('Processed data response:', response);
       
-      // Format data for the dashboard
-      const formattedData = response.data.map(item => ({
-        id: item.id,
-        '*运单号 (AWB Number)': item.awb_number || item.pawb,
-        '*始发站（Departure station）': item.departure_station || item.host_origin_station,
-        '*目的站（Destination）': item.destination || item.host_destination_station,
-        '*件数(Pieces)': parseFloat(item.pieces || item.packets_in_receptacle || '0'),
-        '*重量 (Weight)': parseFloat(item.weight || item.bag_weight || '0'),
-        '航司(Airline)': item.airline || item.flight_carrier_1,
-        '航班号 (Flight Number)': item.flight_number || item.flight_number_1,
-        '航班日期 (Flight Date)': item.flight_date || item.flight_date_1,
-        '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
-        '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
-        '*运价类型 (Rate Type)': item.rate_type || 'Standard',
-        '*费率 (Rate)': parseFloat(item.rate || '0'),
-        '*航空运费 (Air Freight)': parseFloat(item.air_freight || '0'),
-        "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
-        "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
-        '*总运费 (Total Charges)': parseFloat(item.total_charges || item.tariff_amount || '0'),
-        'Carrier Code': item.carrier_code || item.flight_carrier_1,
-        'Flight/ Trip Number': item.flight_number || item.flight_number_1,
-        'Tracking Number': item.tracking_number,
-        'Arrival Port Code': item.arrival_port_code || 'LAX',
-        'Arrival Date': item.arrival_date,
-        'Declared Value (USD)': item.declared_value_usd || item.declared_value || item.tariff_amount
-      }));
-
-      setProcessedData(formattedData);
-      console.log(`Loaded ${formattedData.length} processed records for display`);
-      return formattedData;
+      // Store RAW database data - NO PROCESSING IN FRONTEND
+      setProcessedData(response.data || []);
+      console.log(`Loaded ${response.data?.length || 0} processed records from backend`);
+      return response.data || [];
     } catch (error) {
       console.error('Error fetching processed data:', error);
       return [];
+    }
+  };
+
+  const fetchAnalyticsData = async () => {
+    try {
+      console.log('Fetching analytics data from backend...');
+      const response = await apiService.getAnalytics();
+      console.log('Analytics data response:', response);
+      setAnalyticsData(response);
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
     }
   };
 
@@ -76,8 +61,9 @@ const DataIngestionSimple: React.FC = () => {
         setIsBackendConnected(true);
         console.log('Backend connected successfully');
         
-        // Also try to load any existing processed data
+        // Load existing processed data and analytics
         await fetchProcessedData();
+        await fetchAnalyticsData();
       } catch (error) {
         console.error('Backend connection failed:', error);
         setIsBackendConnected(false);
@@ -93,19 +79,21 @@ const DataIngestionSimple: React.FC = () => {
       setIsLoading(true);
       setError(null);
       
+      // Upload file to backend - ALL PROCESSING HAPPENS IN BACKEND
       const result = await apiService.uploadCNPFile(file);
       console.log('Processing result:', result);
       
       setResult(result);
       
       if (result.success) {
-        console.log('File processed successfully!');
+        console.log('File processed successfully by backend!');
         console.log(`Total records: ${result.total_records}`);
         console.log(`New entries: ${result.new_entries}`);
         
-        // Fetch the processed data from database
-        console.log('Fetching processed data for display...');
+        // Fetch the processed data from backend (NO FRONTEND PROCESSING)
+        console.log('Fetching processed data from backend...');
         await fetchProcessedData();
+        await fetchAnalyticsData();
         
         // Auto-switch to analytics tab after successful processing
         setTimeout(() => {
@@ -143,34 +131,36 @@ const DataIngestionSimple: React.FC = () => {
     }
 
     try {
-      const blob = await apiService.generateChinaPostFile(processedData);
-      downloadBlob(blob, `internal_use_${Date.now()}.xlsx`);
+      // Backend generates file directly - NO FRONTEND DATA SENT
+      const blob = await apiService.generateChinaPostFile();
+      downloadBlob(blob, `CHINAPOST_EXPORT_${Date.now()}.xlsx`);
     } catch (error) {
       console.error('Download error:', error);
-      alert('Error generating Internal Use file');
+      alert('Error generating CHINAPOST export file');
     }
   };
 
-  const handleGenerateCBP = async () => {
+  const handleGenerateCBD = async () => {
     if (!processedData.length) {
       alert('No processed data available. Please upload and process a file first.');
       return;
     }
 
     try {
-      const blob = await apiService.generateCBPFile(processedData);
-      downloadBlob(blob, `cbp_output_${Date.now()}.xlsx`);
+      // Backend generates file directly - NO FRONTEND DATA SENT
+      const blob = await apiService.generateCBDFile();
+      downloadBlob(blob, `CBD_EXPORT_${Date.now()}.xlsx`);
     } catch (error) {
       console.error('Download error:', error);
-      alert('Error generating CBP file');
+      alert('Error generating CBD export file');
     }
   };
 
   const tabs = [
     { id: 'upload', name: 'Data Upload', icon: Upload },
     { id: 'analytics', name: 'Analytics', icon: BarChart3, disabled: processedData.length === 0 },
-    { id: 'cbp', name: 'CBP Section', icon: Building, disabled: processedData.length === 0 },
-    { id: 'china-post', name: 'China Post', icon: Plane, disabled: processedData.length === 0 },
+    { id: 'cbd', name: 'CBD Section', icon: Building, disabled: processedData.length === 0 },
+    { id: 'chinapost', name: 'China Post', icon: Plane, disabled: processedData.length === 0 },
   ];
 
   return (
@@ -181,7 +171,7 @@ const DataIngestionSimple: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">CNP Data Processing System</h1>
           <div className="mt-1 flex items-center space-x-4">
             <p className="text-gray-600">
-              Complete workflow for processing CNP raw data with IODA integration
+              Complete workflow for processing CNP raw data with IODA integration (Backend Processing)
             </p>
             <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium ${
               isBackendConnected 
@@ -254,14 +244,14 @@ const DataIngestionSimple: React.FC = () => {
               )}
               <p className="text-lg font-medium text-gray-900 mb-2">
                 {isLoading 
-                  ? 'Processing...' 
+                  ? 'Processing in Backend...' 
                   : isDragActive
                   ? 'Drop the file here...'
-                  : 'Drag & drop Sample Data.xlsx here, or click to select'
+                  : 'Drag & drop IMPORTED DATA.xlsx here, or click to select'
                 }
               </p>
               <p className="text-sm text-gray-500">
-                Upload the complete Excel file - the system will automatically process the CNP raw data sheet
+                Upload the complete Excel file - backend will automatically process the CNP raw data using correct workflow
               </p>
             </div>
 
@@ -281,7 +271,7 @@ const DataIngestionSimple: React.FC = () => {
               <div className="mt-6 p-4 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg">
                 <div className="flex items-center space-x-2 mb-3">
                   <CheckCircle className="h-5 w-5 text-green-600" />
-                  <h3 className="text-sm font-semibold text-green-900">Processing Complete</h3>
+                  <h3 className="text-sm font-semibold text-green-900">Backend Processing Complete</h3>
                 </div>
                 <p className="text-xs text-gray-700 mb-3">
                   Successfully processed {result.total_records} records with {result.new_entries} new entries added to database
@@ -290,20 +280,20 @@ const DataIngestionSimple: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-3 rounded-md bg-green-100 border border-green-200">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">Internal Use Output</span>
+                      <span className="text-xs font-medium">CHINAPOST Export</span>
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     </div>
                     <p className="text-xs text-gray-600 mt-1">
-                      {result.results?.internal_use?.records_processed || result.total_records} records ready
+                      {result.results?.chinapost_export?.records_processed || result.total_records} records ready
                     </p>
                   </div>
                   <div className="p-3 rounded-md bg-green-100 border border-green-200">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">CBP Output</span>
+                      <span className="text-xs font-medium">CBD Export</span>
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     </div>
                     <p className="text-xs text-gray-600 mt-1">
-                      {result.results?.cbp?.records_processed || result.total_records} records ready
+                      {result.results?.cbd_export?.records_processed || result.total_records} records ready
                     </p>
                   </div>
                 </div>
@@ -313,14 +303,14 @@ const DataIngestionSimple: React.FC = () => {
                     onClick={handleGenerateChinaPost}
                     className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
-                    Download Internal Use File
+                    Download CHINAPOST Export
                   </button>
                   
                   <button
-                    onClick={handleGenerateCBP}
+                    onClick={handleGenerateCBD}
                     className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
                   >
-                    Download CBP File
+                    Download CBD Export
                   </button>
                 </div>
               </div>
@@ -328,45 +318,47 @@ const DataIngestionSimple: React.FC = () => {
 
             {/* Information about workflow */}
             <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h3 className="text-sm font-semibold text-blue-900 mb-3">CNP Data Processing Workflow</h3>
+              <h3 className="text-sm font-semibold text-blue-900 mb-3">Correct CNP Data Processing Workflow (Backend)</h3>
               <div className="text-xs text-blue-800 space-y-2">
                 <p>• Upload the complete Excel file containing CNP raw data</p>
-                <p>• System automatically extracts and processes the "Raw data provided by CNP" sheet</p>
-                <p>• Data is merged with IODA China Post reference data using receptacle matching</p>
-                <p>• Tariff calculations are performed (80% of declared value)</p>
-                <p>• Both Internal Use and CBP format outputs are generated</p>
+                <p>• Backend automatically extracts and processes the "Raw data provided by CNP" sheet</p>
+                <p>• Backend merges CNP data with IODA master data using receptacle matching</p>
+                <p>• Backend performs tariff calculations (80% of declared value)</p>
+                <p>• Backend generates both CHINAPOST EXPORT and CBD EXPORT formats</p>
                 <p>• All processed data is stored in the database for analytics and reporting</p>
+                <p>• Frontend displays backend-processed data only - no frontend calculations</p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Analytics Tab */}
+      {/* Analytics Tab - Uses backend-processed data only */}
       {activeTab === 'analytics' && processedData.length > 0 && (
         <Dashboard 
-          data={processedData} 
+          data={processedData}
+          analyticsData={analyticsData}
           processResult={result || {
             results: {
-              china_post: { available: true, records_processed: processedData.length },
-              cbp: { available: true, records_processed: processedData.length }
+              chinapost_export: { available: true, records_processed: processedData.length },
+              cbd_export: { available: true, records_processed: processedData.length }
             },
             total_records: processedData.length
           }} 
         />
       )}
 
-      {/* CBP Tab */}
-      {activeTab === 'cbp' && processedData.length > 0 && (
+      {/* CBD Tab - Uses backend-processed data only */}
+      {activeTab === 'cbd' && processedData.length > 0 && (
         <CBPSection 
           data={processedData} 
-          onDownload={handleGenerateCBP}
+          onDownload={handleGenerateCBD}
           isAvailable={true}
         />
       )}
 
-      {/* China Post Tab */}
-      {activeTab === 'china-post' && processedData.length > 0 && (
+      {/* China Post Tab - Uses backend-processed data only */}
+      {activeTab === 'chinapost' && processedData.length > 0 && (
         <ChinaPostSection 
           data={processedData} 
           onDownload={handleGenerateChinaPost}

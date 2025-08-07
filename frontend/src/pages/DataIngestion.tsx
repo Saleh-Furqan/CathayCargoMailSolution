@@ -15,7 +15,7 @@ import {
   Plane,
 } from 'lucide-react';
 import { DataFile } from '../types';
-import { apiService, downloadBlob, ProcessDataResponse, ColumnsResponse } from '../services/api';
+import { apiService, downloadBlob, ProcessDataResponse } from '../services/api';
 import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
@@ -63,7 +63,7 @@ const DataIngestion: React.FC = () => {
       console.log('fetchProcessedData: Response data length:', response.data?.length || 0);
       
       // Format data for the dashboard
-      const formattedData = response.data.map(item => ({
+      const formattedData = response.data.map((item: any) => ({
         id: item.id,
         '*运单号 (AWB Number)': item.awb_number,
         '*始发站（Departure station）': item.departure_station,
@@ -308,9 +308,8 @@ const DataIngestion: React.FC = () => {
       fileInput.onchange = async (e) => {
         const files = (e.target as HTMLInputElement).files;
         if (files && files.length > 0) {
-          const file = files[0];
           try {
-            const blob = await apiService.generateChinaPostFile(undefined, file);
+            const blob = await apiService.generateChinaPostFile();
             downloadBlob(blob, `internal_use_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
             setNotification({
               message: 'Internal Use file generated successfully',
@@ -360,9 +359,8 @@ const DataIngestion: React.FC = () => {
       fileInput.onchange = async (e) => {
         const files = (e.target as HTMLInputElement).files;
         if (files && files.length > 0) {
-          const file = files[0];
           try {
-            const blob = await apiService.generateCBPFile(undefined, file);
+            const blob = await apiService.generateCBPFile();
             downloadBlob(blob, `cbp_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
             setNotification({
               message: 'CBP file generated successfully',
@@ -786,7 +784,7 @@ const DataIngestion: React.FC = () => {
 
       {/* Dashboard Tab */}
       {activeTab === 'dashboard' && (
-        <Dashboard data={processedData} processResult={processResult} />
+        <Dashboard data={processedData} analyticsData={null} processResult={processResult} />
       )}
 
       {/* CBP Tab */}

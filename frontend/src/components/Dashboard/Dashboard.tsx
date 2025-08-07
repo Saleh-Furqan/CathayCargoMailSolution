@@ -24,6 +24,7 @@ import {
 
 interface DashboardProps {
   data: any[];
+  analyticsData: any;
   processResult: any;
 }
 
@@ -58,84 +59,47 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, changeType, i
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
-  // Calculate analytics
+const Dashboard: React.FC<DashboardProps> = ({ data, analyticsData, processResult }) => {
+  // Use backend-provided analytics data, with fallback if not available
   const analytics = React.useMemo(() => {
     if (!data.length) return null;
 
-    const totalPackages = data.reduce((sum, item) => sum + (item['*件数(Pieces)'] || 0), 0);
-    const totalWeight = data.reduce((sum, item) => sum + (item['*重量 (Weight)'] || 0), 0);
-    const totalCharges = data.reduce((sum, item) => sum + (item['*总运费 (Total Charges)'] || 0), 0);
-    const totalDeclaredValue = data.reduce((sum, item) => {
-      const value = item['Declared Value (USD)'];
-      if (typeof value === 'string') {
-        return sum + parseFloat(value.replace('$', '').replace(',', '')) || 0;
-      }
-      return sum + (value || 0);
-    }, 0);
+    // If backend analytics available, use it
+    if (analyticsData && analyticsData.analytics) {
+      return {
+        totalShipments: analyticsData.analytics?.total_shipments || 0,
+        totalWeight: analyticsData.analytics?.total_weight || 0,
+        totalDeclaredValue: isNaN(analyticsData.analytics?.total_declared_value) ? 0 : (analyticsData.analytics?.total_declared_value || 0),
+        totalTariff: isNaN(analyticsData.analytics?.total_tariff) ? 0 : (analyticsData.analytics?.total_tariff || 0),
+        uniqueDestinations: analyticsData.analytics?.unique_destinations || 0,
+        uniqueCarriers: analyticsData.analytics?.unique_carriers || 0,
+        uniqueReceptacles: analyticsData.analytics?.unique_receptacles || 0,
+        destinationData: (analyticsData.breakdown?.by_destination || []).map((item: any) => ({
+          ...item,
+          value: isNaN(item.value) ? 0 : item.value
+        })),
+        carrierData: (analyticsData.breakdown?.by_carrier || []).map((item: any) => ({
+          ...item,
+          value: isNaN(item.value) ? 0 : item.value
+        })),
+        currencyData: analyticsData.breakdown?.by_currency || [],
+      };
+    }
 
-    // Group by airline
-    const airlineData = data.reduce((acc, item) => {
-      const airline = item['航司(Airline)'] || 'Unknown';
-      if (!acc[airline]) {
-        acc[airline] = { name: airline, packages: 0, weight: 0, charges: 0 };
-      }
-      acc[airline].packages += item['*件数(Pieces)'] || 0;
-      acc[airline].weight += item['*重量 (Weight)'] || 0;
-      acc[airline].charges += item['*总运费 (Total Charges)'] || 0;
-      return acc;
-    }, {} as Record<string, any>);
-
-    // Group by destination
-    const destinationData = data.reduce((acc, item) => {
-      const dest = item['*目的站（Destination）'] || 'Unknown';
-      if (!acc[dest]) {
-        acc[dest] = { name: dest, packages: 0, weight: 0, value: 0, totalRate: 0, count: 0 };
-      }
-      acc[dest].packages += item['*件数(Pieces)'] || 0;
-      acc[dest].weight += item['*重量 (Weight)'] || 0;
-      acc[dest].totalRate += item['*费率 (Rate)'] || 0;
-      acc[dest].count += 1;
-      const declaredValue = item['Declared Value (USD)'];
-      if (typeof declaredValue === 'string') {
-        acc[dest].value += parseFloat(declaredValue.replace('$', '').replace(',', '')) || 0;
-      } else {
-        acc[dest].value += declaredValue || 0;
-      }
-      return acc;
-    }, {} as Record<string, any>);
-
-    // Calculate average rates for destinations
-    const destinationDataWithAvg = Object.values(destinationData).map((dest: any) => ({
-      ...dest,
-      avgRate: dest.count > 0 ? Math.round((dest.totalRate / dest.count) * 100) / 100 : 0
-    }));
-
-    // Group by rate type
-    const rateTypeData = data.reduce((acc, item) => {
-      const rateType = item['*运价类型 (Rate Type)'] || 'Unknown';
-      if (!acc[rateType]) {
-        acc[rateType] = { name: rateType, count: 0, value: 0 };
-      }
-      acc[rateType].count += 1;
-      acc[rateType].value += item['*总运费 (Total Charges)'] || 0;
-      return acc;
-    }, {} as Record<string, any>);
-
+    // Fallback: basic analytics from frontend data if backend not available
     return {
-      totalPackages,
-      totalWeight: Math.round(totalWeight * 100) / 100,
-      totalCharges: Math.round(totalCharges * 100) / 100,
-      totalDeclaredValue: Math.round(totalDeclaredValue * 100) / 100,
-      averageWeight: Math.round((totalWeight / data.length) * 100) / 100,
-      averageValue: Math.round((totalDeclaredValue / data.length) * 100) / 100,
-      airlineData: Object.values(airlineData),
-      destinationData: destinationDataWithAvg,
-      rateTypeData: Object.values(rateTypeData),
-      uniqueCarriers: new Set(data.map(item => item['Carrier Code'])).size,
-      uniqueDestinations: new Set(data.map(item => item['*目的站（Destination）'])).size,
+      totalShipments: data.length,
+      totalWeight: 0,
+      totalDeclaredValue: 0,
+      totalTariff: 0,
+      uniqueDestinations: new Set(data.map((item: any) => item.host_destination_station).filter(Boolean)).size,
+      uniqueCarriers: new Set(data.map((item: any) => item.flight_carrier_1).filter(Boolean)).size,
+      uniqueReceptacles: new Set(data.map((item: any) => item.receptacle_id).filter(Boolean)).size,
+      destinationData: [],
+      carrierData: [],
+      currencyData: [],
     };
-  }, [data]);
+  }, [analyticsData, data]);
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
@@ -166,8 +130,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard
-          title="Total Packages"
-          value={analytics.totalPackages.toLocaleString()}
+          title="Total Shipments"
+          value={analytics.totalShipments.toLocaleString()}
           icon={Package}
           color="bg-blue-500"
         />
@@ -178,8 +142,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
           color="bg-green-500"
         />
         <StatCard
-          title="Total Charges"
-          value={`$${analytics.totalCharges.toLocaleString()}`}
+          title="Total Tariff"
+          value={`$${analytics.totalTariff.toLocaleString()}`}
           icon={DollarSign}
           color="bg-purple-500"
         />
@@ -194,8 +158,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       {/* Secondary Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         <StatCard
-          title="Average Package Weight"
-          value={`${analytics.averageWeight} kg`}
+          title="Unique Receptacles"
+          value={analytics.uniqueReceptacles}
           icon={Package}
           color="bg-indigo-500"
         />
@@ -219,26 +183,26 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
           <div className="card p-6">
             <div className="flex items-center space-x-4 mb-4">
               <div className={`p-3 rounded-lg flex-shrink-0 ${
-                (processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 'bg-green-500' : 'bg-red-500'
+                processResult.results.chinapost_export?.available ? 'bg-green-500' : 'bg-red-500'
               }`}>
-                {(processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 
+                {processResult.results.chinapost_export?.available ? 
                   <CheckCircle className="h-5 w-5 text-white" /> :
                   <AlertTriangle className="h-5 w-5 text-white" />
                 }
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 leading-tight">China Post Processing</h3>
+              <h3 className="text-lg font-semibold text-gray-900 leading-tight">CHINAPOST Export</h3>
             </div>
             <div className="space-y-3">
               <p className="text-sm text-gray-600 leading-relaxed">
                 Status: <span className={`font-semibold ${
-                  (processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 'text-green-600' : 'text-red-600'
+                  processResult.results.chinapost_export?.available ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {(processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 'Ready' : 'Not Available'}
+                  {processResult.results.chinapost_export?.available ? 'Ready' : 'Not Available'}
                 </span>
               </p>
-              {(processResult.results.china_post?.records_processed || processResult.results.internal_use?.records_processed) && (
+              {processResult.results.chinapost_export?.records_processed && (
                 <p className="text-sm text-gray-600 leading-relaxed">
-                  Records: <span className="font-semibold text-gray-900">{processResult.results.china_post?.records_processed || processResult.results.internal_use?.records_processed}</span>
+                  Records: <span className="font-semibold text-gray-900">{processResult.results.chinapost_export.records_processed}</span>
                 </p>
               )}
             </div>
@@ -247,26 +211,26 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
           <div className="card p-6">
             <div className="flex items-center space-x-4 mb-4">
               <div className={`p-3 rounded-lg flex-shrink-0 ${
-                processResult.results.cbp?.available ? 'bg-green-500' : 'bg-red-500'
+                processResult.results.cbd_export?.available ? 'bg-green-500' : 'bg-red-500'
               }`}>
-                {processResult.results.cbp?.available ? 
+                {processResult.results.cbd_export?.available ? 
                   <CheckCircle className="h-5 w-5 text-white" /> :
                   <AlertTriangle className="h-5 w-5 text-white" />
                 }
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 leading-tight">CBP Processing</h3>
+              <h3 className="text-lg font-semibold text-gray-900 leading-tight">CBD Export</h3>
             </div>
             <div className="space-y-3">
               <p className="text-sm text-gray-600 leading-relaxed">
                 Status: <span className={`font-semibold ${
-                  processResult.results.cbp?.available ? 'text-green-600' : 'text-red-600'
+                  processResult.results.cbd_export?.available ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {processResult.results.cbp?.available ? 'Ready' : 'Not Available'}
+                  {processResult.results.cbd_export?.available ? 'Ready' : 'Not Available'}
                 </span>
               </p>
-              {processResult.results.cbp?.records_processed && (
+              {processResult.results.cbd_export?.records_processed && (
                 <p className="text-sm text-gray-600 leading-relaxed">
-                  Records: <span className="font-semibold text-gray-900">{processResult.results.cbp.records_processed}</span>
+                  Records: <span className="font-semibold text-gray-900">{processResult.results.cbd_export.records_processed}</span>
                 </p>
               )}
             </div>
@@ -276,23 +240,23 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* Revenue by Destination */}
+        {/* Value by Destination */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Revenue by Destination</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Value by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={analytics.destinationData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Revenue']} />
+              <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Value']} />
               <Bar dataKey="value" fill="#3B82F6" />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Package Distribution by Destination */}
+        {/* Shipments Distribution by Destination */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Package Distribution by Destination</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Shipments Distribution by Destination</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -300,31 +264,17 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, packages }) => `${name}: ${packages}`}
+                label={({ name, count }) => `${name}: ${count}`}
                 outerRadius={80}
                 fill="#8884d8"
-                dataKey="packages"
+                dataKey="count"
               >
-                {analytics.destinationData.map((_, index) => (
+                {analytics.destinationData.map((_: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip />
             </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Average Tariff Rate by Destination */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Average Tariff Rate by Destination</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={analytics.destinationData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip formatter={(value) => [`$${Number(value).toFixed(2)}/kg`, 'Avg Rate']} />
-              <Bar dataKey="avgRate" fill="#10B981" />
-            </BarChart>
           </ResponsiveContainer>
         </div>
 
@@ -341,21 +291,43 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Carrier Distribution */}
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Shipments by Carrier</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={analytics.carrierData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip formatter={(value) => [`${Number(value).toLocaleString()}`, 'Count']} />
+              <Bar dataKey="count" fill="#10B981" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
-      {/* Tariff Analysis */}
+      {/* Currency Analysis */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Revenue vs Weight Efficiency by Destination</h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-6 leading-tight">Currency Distribution</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={analytics.destinationData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis yAxisId="left" />
-            <YAxis yAxisId="right" orientation="right" />
+          <PieChart>
+            <Pie
+              data={analytics.currencyData}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              label={({ name, count }) => `${name}: ${count}`}
+              outerRadius={80}
+              fill="#8884d8"
+              dataKey="count"
+            >
+              {analytics.currencyData.map((_: any, index: number) => (
+                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
             <Tooltip />
-            <Bar yAxisId="left" dataKey="value" fill="#3B82F6" name="Revenue ($)" />
-            <Bar yAxisId="right" dataKey="avgRate" fill="#F59E0B" name="Rate ($/kg)" />
-          </BarChart>
+          </PieChart>
         </ResponsiveContainer>
       </div>
     </div>

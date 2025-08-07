@@ -1,12 +1,10 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import pandas as pd
-from openpyxl import load_workbook, Workbook
-from openpyxl.styles import Font, Alignment, Border, Side
 import io
 import os
-from datetime import datetime, timedelta
-from models import db, ShipmentEntry
+from datetime import datetime
+from models import db, ProcessedShipment, TariffRate
 from config import Config
 from sqlalchemy import func, and_
 from data_processor import DataProcessor
@@ -22,153 +20,56 @@ CORS(app)
 with app.app_context():
     db.create_all()
 
-@app.route('/historical-data', methods=['POST'])
-def get_historical_data():
-    try:
-        data = request.json
-        start_date = data.get('startDate')
-        end_date = data.get('endDate')
+# IODA data file path (the preprocessed master data)
+IODA_DATA_FILE = "../../data processing/master_cardit_inner_event_df(IODA DATA).xlsx"
 
-        # Query the database
-        query = ShipmentEntry.query
-
-        if start_date and end_date:
-            query = query.filter(
-                and_(
-                    func.date(ShipmentEntry.flight_date) >= start_date,
-                    func.date(ShipmentEntry.flight_date) <= end_date
-                )
-            )
-
-        # Execute query and convert to list of dictionaries
-        entries = query.all()
-        results = [entry.to_dict() for entry in entries]
-
-        return jsonify({
-            'data': results,
-            'total_records': len(results),
-            'results': {
-                'china_post': {
-                    'available': True,
-                    'records_processed': len(results)
-                },
-                'cbp': {
-                    'available': True,
-                    'records_processed': len(results)
-                }
-            }
-        })
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Template file paths
-CP_TEMPLATE = "templates/China Post data source file template.xlsx"
-CBP_TEMPLATE = "templates/CBP transported package worksheet file template.xlsx"
-
-# IODA data file path
-IODA_DATA_FILE = "../../data processing/Sample_Data_from_IODA_v2 (China Post).xlsx"
-
-# Column mappings from original code
-CP_COLUMNS = [
-    "*运单号 (AWB Number)",
-    "*始发站（Departure station）",
-    "*目的站（Destination）",
-    "*件数(Pieces)",
-    "*重量 (Weight)",
-    "航司(Airline)",
-    "航班号 (Flight Number)",
-    "航班日期 (Flight Date)",
-    "一个航班的邮件item总数 (Total mail items per flight)",
-    "一个航班的邮件总重量 (Total mail weight per flight)",
-    "*运价类型 (Rate Type)",
-    "*费率 (Rate)",
-    "*航空运费 (Air Freight)",
-    "代理人的其他费用 (Agent's Other Charges)",
-    "承运人的其他费用 (Carrier's Other Charges)",
-    "*总运费 (Total Charges)"
-]
-
-CBP_COLUMNS = [
-    "Carrier Code",
-    "Flight/ Trip Number",
-    "Tracking Number",
-    "Arrival Port Code",
-    "Arrival Date",
-    "Declared Value (USD)"
-]
-
-# CBP header mapping
-CBP_HEADER_LOOKUP = {
-    "Carrier Code": "Carrier Code",
-    "Flight/ Trip Number": "Flight/ Trip Number", 
-    "Tracking Number": "Tracking Number",
-    "Arrival Port Code": "Arrival Port Code",
-    "Arrival Date": "Arrival Date",
-    "Declared Value (USD)": "Declared Value (USD)"
-}
-
-def build_header_map(ws, header_rows):
-    """Helper function to map template headers to column indices"""
-    mapping = {}
-    for row in header_rows:
-        for cell in row:
-            if cell.value and isinstance(cell.value, str):
-                mapping[cell.value.strip()] = cell.column
-    return mapping
-
-def filter_cp_data(df):
-    """Filter out instruction/sample rows from China Post data"""
-    instruction_keywords = [
-        "此行开始填具体某个邮件的信息",
-        "Below shows sample data for individual mail items",
-        "航司提供",
-        "To be completed by airline",
-        "根据启运口岸提供固定地址",
-        "Fixed sender address in English",
-        "根据目的口岸提供固定地址", 
-        "Fixed recipient address in English",
-        "CP将要求所有美国路向的邮件收寄时必须按照美元申报",
-        "CP will require all US-bound mail to declare value in USD"
-    ]
-    
-    mask = df["*运单号 (AWB Number)"].astype(str).apply(
-        lambda x: not any(keyword in str(x) for keyword in instruction_keywords)
-    )
-    return df[mask].reset_index(drop=True)
-
-def save_workflow_output_to_database(internal_df):
-    """Save workflow output (Internal Use format) to database"""
+def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataFrame) -> tuple:
+    """Save CHINAPOST export data to database with CBD export fields"""
     new_entries = 0
     skipped_entries = 0
     
-    for _, row in internal_df.iterrows():
+    # Create a mapping of CBD data for easy lookup
+    cbd_dict = {}
+    if not cbd_df.empty:
+        for _, cbd_row in cbd_df.iterrows():
+            tracking_num = cbd_row.get('Tracking Number', '')
+            cbd_dict[tracking_num] = {
+                'carrier_code': cbd_row.get('Carrier Code', ''),
+                'flight_trip_number': cbd_row.get('Flight/Trip Number', ''),
+                'arrival_port_code': cbd_row.get('Arrival Port Code', ''),
+                'arrival_date_formatted': cbd_row.get('Arrival Date', ''),
+                'declared_value_usd': cbd_row.get('Declared Value (USD)', '')
+            }
+    
+    for _, row in chinapost_df.iterrows():
         # Check if entry already exists
         tracking_number = str(row.get('Tracking Number', ''))
         receptacle_id = str(row.get('Receptacle', ''))
-        flight_number = str(row.get('Flight Number 1', ''))
-        flight_date = str(row.get('Flight Date 1', ''))
+        pawb = str(row.get('PAWB', ''))
         
-        existing_entry = ShipmentEntry.query.filter_by(
+        existing_entry = ProcessedShipment.query.filter_by(
             tracking_number=tracking_number,
             receptacle_id=receptacle_id,
-            flight_number=flight_number,
-            flight_date=flight_date
+            pawb=pawb
         ).first()
         
         if existing_entry:
             skipped_entries += 1
             continue  # Skip duplicate entry
-            
-        # Create new shipment entry with complete workflow data
-        entry = ShipmentEntry(
+        
+        # Get CBD data for this tracking number
+        cbd_data = cbd_dict.get(tracking_number, {})
+        
+        # Create new processed shipment entry
+        entry = ProcessedShipment(
             # Core identification
-            pawb=str(row.get('PAWB', '')),
+            sequence_number=str(row.get('', '')),
+            pawb=pawb,
             cardit=str(row.get('CARDIT', '')),
             tracking_number=tracking_number,
             receptacle_id=receptacle_id,
             
-            # Flight information
+            # Flight and routing information
             host_origin_station=str(row.get('Host Origin Station', '')),
             host_destination_station=str(row.get('Host Destination Station', '')),
             flight_carrier_1=str(row.get('Flight Carrier 1', '')),
@@ -177,35 +78,30 @@ def save_workflow_output_to_database(internal_df):
             flight_carrier_2=str(row.get('Flight Carrier 2', '')),
             flight_number_2=str(row.get('Flight Number 2', '')),
             flight_date_2=str(row.get('Flight Date 2', '')),
+            flight_carrier_3=str(row.get('Flight Carrier 3', '')),
+            flight_number_3=str(row.get('Flight Number 3', '')),
+            flight_date_3=str(row.get('Flight Date 3', '')),
+            
+            # Arrival and ULD information
             arrival_date=str(row.get('Arrival Date', '')),
-            uld_number=str(row.get('ULD Number', '')),
+            arrival_uld_number=str(row.get('Arrival ULD number', '')),
             
-            # Package details
-            bag_weight=str(row.get('Bag Weight', '')),
+            # Package and content details
+            bag_weight=str(row.get('Bag weight', '')),
             bag_number=str(row.get('Bag Number', '')),
-            packets_in_receptacle=str(row.get('Number of packets inside Receptacle', '')),
-            
-            # Content and customs
             declared_content=str(row.get('Declared content', '')),
             hs_code=str(row.get('HS Code', '')),
             declared_value=str(row.get('Declared Value', '')),
             currency=str(row.get('Currency', '')),
+            number_of_packets=str(row.get('Number of Packet under same receptacle', '')),
             tariff_amount=str(row.get('Tariff amount', '')),
             
-            # CBP fields
-            carrier_code=str(row.get('Flight Carrier 1', '')),  # Use carrier for CBP
-            arrival_port_code='4701',  # Default port code
-            declared_value_usd=str(row.get('Declared Value', '')),  # Assuming USD
-            
-            # Legacy fields for backward compatibility
-            awb_number=str(row.get('PAWB', '')),
-            departure_station=str(row.get('Host Origin Station', '')),
-            destination=str(row.get('Host Destination Station', '')),
-            weight=str(row.get('Bag Weight', '')),
-            airline=str(row.get('Flight Carrier 1', '')),
-            flight_number=str(row.get('Flight Number 1', '')),
-            flight_date=str(row.get('Flight Date 1', '')),
-            total_charges=str(row.get('Tariff amount', ''))
+            # CBD export derived fields
+            carrier_code=cbd_data.get('carrier_code', ''),
+            flight_trip_number=cbd_data.get('flight_trip_number', ''),
+            arrival_port_code=cbd_data.get('arrival_port_code', ''),
+            arrival_date_formatted=cbd_data.get('arrival_date_formatted', ''),
+            declared_value_usd=cbd_data.get('declared_value_usd', '')
         )
         
         db.session.add(entry)
@@ -213,146 +109,10 @@ def save_workflow_output_to_database(internal_df):
     
     return new_entries, skipped_entries
 
-def create_china_post_output(df):
-    """Create China Post output Excel file and save to database"""
-    # Filter data
-    cp_df = df[CP_COLUMNS].copy()
-    cp_df = filter_cp_data(cp_df)
-    
-    # Load template to extract headers
-    wb_cp_template = load_workbook(CP_TEMPLATE)
-    ws_cp_template = wb_cp_template.active
-    
-    # Create new workbook
-    wb_cp = Workbook()
-    ws_cp = wb_cp.active
-    
-    # Copy header rows (1-2) from template
-    for row_num in [1, 2]:
-        for col_num in range(1, ws_cp_template.max_column + 1):
-            template_cell = ws_cp_template.cell(row=row_num, column=col_num)
-            new_cell = ws_cp.cell(row=row_num, column=col_num)
-            new_cell.value = template_cell.value
-            # Copy header formatting
-            if template_cell.font:
-                new_cell.font = Font(name=template_cell.font.name, size=template_cell.font.size, bold=template_cell.font.bold)
-            if template_cell.alignment:
-                new_cell.alignment = Alignment(horizontal=template_cell.alignment.horizontal, vertical=template_cell.alignment.vertical, wrap_text=template_cell.alignment.wrap_text)
-    
-    # Set header row heights
-    ws_cp.row_dimensions[1].height = 51.0
-    ws_cp.row_dimensions[2].height = 81.0
-    
-    # Build header mapping
-    header_map_cp = build_header_map(ws_cp, ws_cp.iter_rows(min_row=1, max_row=2))
-    
-    # Column header lookup
-    cp_header_lookup = {
-        "*运单号 (AWB Number)": "*运单号 \n(AWB Number)",
-        "*始发站（Departure station）": "*始发站\n（Departure station）",
-        "*目的站（Destination）": "*目的站\n（Destination）",
-        "*件数(Pieces)": "*件数(Pieces)",
-        "*重量 (Weight)": "*重量 \n(Weight) ",
-        "航司(Airline)": "航司(Airline)",
-        "航班号 (Flight Number)": "航班号\n(Flight Number)",
-        "航班日期 (Flight Date)": "航班日期\n(Flight Date)",
-        "一个航班的邮件item总数 (Total mail items per flight)": "一个航班的邮件item总数\n (Total mail items per flight)",
-        "一个航班的邮件总重量 (Total mail weight per flight)": "一个航班的邮件总重量\n(Total mail weight per flight)",
-        "*运价类型 (Rate Type)": "*运价类型\n (Rate Type)",
-        "*费率 (Rate)": "*费率\n (Rate)",
-        "*航空运费 (Air Freight)": "*航空运费\n(Air Freight)",
-        "代理人的其他费用 (Agent's Other Charges)": "代理人的其他费用\n(Agent's Other Charges)",
-        "承运人的其他费用 (Carrier's Other Charges)": "承运人的其他费用\n (Carrier's Other Charges)",
-        "*总运费 (Total Charges)": "*总运费\n (Total Charges)"
-    }
-    
-    # Insert data starting from row 3
-    start_row_cp = 3
-    standard_height = 15
-    default_font = Font(name="Calibri", size=11)
-    default_alignment = Alignment(horizontal="left", vertical="center")
-    
-    for i, row in cp_df.iterrows():
-        excel_row = start_row_cp + i
-        for df_col, template_header in cp_header_lookup.items():
-            col_idx = header_map_cp.get(template_header)
-            if col_idx:
-                cell = ws_cp.cell(row=excel_row, column=col_idx, value=row[df_col])
-                cell.font = default_font
-                cell.alignment = default_alignment
-        
-        ws_cp.row_dimensions[excel_row].height = standard_height
-    
-    # Save to BytesIO
-    output = io.BytesIO()
-    wb_cp.save(output)
-    output.seek(0)
-    
-    return output
-
-def create_cbp_output(df):
-    """Create CBP output Excel file and save to database"""
-    # Extract CBP data
-    cbp_df = df[CBP_COLUMNS].copy()
-    
-    # Load CBP template
-    wb_cbp_template = load_workbook(CBP_TEMPLATE)
-    ws_cbp_template = wb_cbp_template.active
-    
-    # Create new CBP workbook
-    wb_cbp = Workbook()
-    ws_cbp = wb_cbp.active
-    
-    # Copy header rows (1-3) from template
-    for row_num in [1, 2, 3]:
-        for col_num in range(1, ws_cbp_template.max_column + 1):
-            template_cell = ws_cbp_template.cell(row=row_num, column=col_num)
-            new_cell = ws_cbp.cell(row=row_num, column=col_num)
-            new_cell.value = template_cell.value
-            # Copy header formatting
-            if template_cell.font:
-                new_cell.font = Font(name=template_cell.font.name, size=template_cell.font.size, bold=template_cell.font.bold)
-            if template_cell.alignment:
-                new_cell.alignment = Alignment(horizontal=template_cell.alignment.horizontal, vertical=template_cell.alignment.vertical, wrap_text=template_cell.alignment.wrap_text)
-    
-    # Set header row heights
-    ws_cbp.row_dimensions[1].height = 15.4
-    ws_cbp.row_dimensions[2].height = 15.4
-    ws_cbp.row_dimensions[3].height = 15.75
-    
-    # Build header mapping
-    header_map_cbp = build_header_map(ws_cbp, [ws_cbp[3]])
-    
-    # Insert data starting from row 4
-    start_row_cbp = 4
-    standard_height = 15
-    default_font = Font(name="Calibri", size=11)
-    default_alignment = Alignment(horizontal="left", vertical="center")
-    
-    for i, row in cbp_df.iterrows():
-        excel_row = start_row_cbp + i
-        for col_name in CBP_COLUMNS:
-            template_header = CBP_HEADER_LOOKUP.get(col_name, col_name)
-            col_idx = header_map_cbp.get(template_header)
-            if col_idx:
-                cell = ws_cbp.cell(row=excel_row, column=col_idx, value=row[col_name])
-                cell.font = default_font
-                cell.alignment = default_alignment
-        
-        ws_cbp.row_dimensions[excel_row].height = standard_height
-    
-    # Save to BytesIO
-    output = io.BytesIO()
-    wb_cbp.save(output)
-    output.seek(0)
-    
-    return output
-
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    # Also include database record count for debugging
-    record_count = ShipmentEntry.query.count()
+    record_count = ProcessedShipment.query.count()
     return jsonify({
         "status": "healthy", 
         "timestamp": datetime.now().isoformat(),
@@ -361,7 +121,7 @@ def health_check():
 
 @app.route('/upload-cnp-file', methods=['POST'])
 def upload_cnp_file():
-    """Upload and process raw CNP Excel file"""
+    """Upload and process raw CNP Excel file using the correct workflow"""
     try:
         # Check if file was uploaded
         if 'file' not in request.files:
@@ -383,18 +143,15 @@ def upload_cnp_file():
             # Read the raw CNP data from the first sheet (header=None for custom parsing)
             cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
             
-            # Initialize data processor
+            # Initialize data processor with correct IODA file
             processor = DataProcessor(IODA_DATA_FILE)
             
-            # Process the data to get both internal use and CBP formats
-            internal_df, cbp_df = processor.process_cnp_data(cnp_df)
+            # Process the data to get both CHINAPOST and CBD formats
+            chinapost_df, cbd_df = processor.process_cnp_data(cnp_df)
             
-            # Get the merged IODA data for database storage
-            processed_ioda_data = processor.get_processed_data()
-            
-            # Save workflow output to database
-            if internal_df is not None and not internal_df.empty:
-                new_entries, skipped_entries = save_workflow_output_to_database(internal_df)
+            if chinapost_df is not None and not chinapost_df.empty:
+                # Save processed data to database
+                new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
                 db.session.commit()
                 print(f"Saved to database: {new_entries} new entries, {skipped_entries} duplicates skipped")
             else:
@@ -402,18 +159,18 @@ def upload_cnp_file():
             
             return jsonify({
                 "success": True,
-                "message": "CNP file processed successfully",
+                "message": "CNP file processed successfully using correct workflow",
                 "results": {
-                    "internal_use": {
+                    "chinapost_export": {
                         "available": True,
-                        "records_processed": len(internal_df) if not internal_df.empty else 0
+                        "records_processed": len(chinapost_df) if not chinapost_df.empty else 0
                     },
-                    "cbp": {
+                    "cbd_export": {
                         "available": True,
-                        "records_processed": len(cbp_df) if not cbp_df.empty else 0
+                        "records_processed": len(cbd_df) if not cbd_df.empty else 0
                     }
                 },
-                "total_records": len(internal_df) if internal_df is not None else 0,
+                "total_records": len(chinapost_df) if chinapost_df is not None else 0,
                 "new_entries": new_entries,
                 "skipped_duplicates": skipped_entries
             })
@@ -429,204 +186,264 @@ def upload_cnp_file():
             os.remove(temp_path)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/process-data', methods=['POST'])
-def process_data():
-    """Process input data and generate both output files"""
+@app.route('/historical-data', methods=['POST'])
+def get_historical_data():
+    """Get historical processed shipment data - NO FRONTEND PROCESSING"""
     try:
-        # Get JSON data from request
-        data = request.get_json()
+        data = request.json
+        start_date = data.get('startDate')
+        end_date = data.get('endDate')
+
+        # Query the database
+        query = ProcessedShipment.query
+
+        if start_date and end_date:
+            # Filter by arrival_date field (converted to date)
+            query = query.filter(
+                and_(
+                    ProcessedShipment.arrival_date.isnot(None),
+                    ProcessedShipment.arrival_date != '',
+                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
+                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
+                )
+            )
+
+        # Execute query and return RAW database records
+        entries = query.all()
         
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(data)
-        
-        # Validate required columns exist
-        missing_cp_cols = [col for col in CP_COLUMNS if col not in df.columns]
-        missing_cbp_cols = [col for col in CBP_COLUMNS if col not in df.columns]
-        
-        if missing_cp_cols and missing_cbp_cols:
-            return jsonify({
-                "error": "Missing required columns",
-                "missing_cp_columns": missing_cp_cols,
-                "missing_cbp_columns": missing_cbp_cols
-            }), 400
-        
-        # Generate both files
-        results = {}
-            
-        if not missing_cp_cols:
-            cp_output = create_china_post_output(df)
-            results["china_post"] = {
-                "available": True,
-                "records_processed": len(df[CP_COLUMNS])
-            }
-        else:
-            results["china_post"] = {
-                "available": False,
-                "missing_columns": missing_cp_cols
-            }
-        
-        if not missing_cbp_cols:
-            cbp_output = create_cbp_output(df)
-            results["cbp"] = {
-                "available": True,
-                "records_processed": len(df[CBP_COLUMNS])
-            }
-        else:
-            results["cbp"] = {
-                "available": False,
-                "missing_columns": missing_cbp_cols
-            }
-        
-        # This endpoint is for legacy JSON data processing
-        # For CNP file uploads, data is saved in the upload-cnp-file endpoint
-        new_entries = 0
-        skipped_entries = 0
+        # Return PURE database data - let frontend handle display formatting
+        results = []
+        for entry in entries:
+            # Return the complete database record as-is
+            results.append(entry.to_dict())
 
         return jsonify({
-            "success": True,
-            "message": "Data processed successfully",
-            "results": results,
-            "total_records": len(df),
-            "new_entries": new_entries,
-            "skipped_duplicates": skipped_entries
+            'data': results,
+            'total_records': len(results),
+            'results': {
+                'chinapost_export': {
+                    'available': True,
+                    'records_processed': len(results)
+                },
+                'cbd_export': {
+                    'available': True,
+                    'records_processed': len(results)
+                }
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/generate-chinapost', methods=['POST'])
+def generate_chinapost():
+    """Generate CHINAPOST export file - NO FRONTEND DATA NEEDED"""
+    try:
+        # Get data directly from database
+        entries = ProcessedShipment.query.all()
+        
+        if not entries:
+            return jsonify({"error": "No processed data available"}), 400
+        
+        # Convert database records to CHINAPOST format
+        chinapost_data = []
+        for entry in entries:
+            chinapost_data.append(entry.to_chinapost_format())
+        
+        # Create DataFrame and Excel output
+        df = pd.DataFrame(chinapost_data)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='CHINAPOST Export', index=False)
+        output.seek(0)
+        
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=f"CHINAPOST_EXPORT_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/generate-cbd', methods=['POST'])
+def generate_cbd():
+    """Generate CBD export file - NO FRONTEND DATA NEEDED"""
+    try:
+        # Get data directly from database
+        entries = ProcessedShipment.query.all()
+        
+        if not entries:
+            return jsonify({"error": "No processed data available"}), 400
+        
+        # Convert database records to CBD format
+        cbd_data = []
+        for entry in entries:
+            cbd_data.append(entry.to_cbd_format())
+        
+        # Create DataFrame and Excel output
+        df = pd.DataFrame(cbd_data)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='CBD Export', index=False)
+        output.seek(0)
+        
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=f"CBD_EXPORT_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get-analytics-data', methods=['GET', 'POST'])
+def get_analytics_data():
+    """Get analytics data for dashboard - BACKEND PROCESSED ONLY"""
+    try:
+        # Get query parameters for date filtering
+        query = ProcessedShipment.query
+        
+        if request.method == 'POST':
+            data = request.json or {}
+            start_date = data.get('startDate')
+            end_date = data.get('endDate')
+            
+            if start_date and end_date:
+                # Filter by arrival_date field (same logic as historical-data endpoint)
+                query = query.filter(
+                    and_(
+                        ProcessedShipment.arrival_date.isnot(None),
+                        ProcessedShipment.arrival_date != '',
+                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
+                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
+                    )
+                )
+        
+        # Execute query
+        entries = query.all()
+        
+        if not entries:
+            return jsonify({
+                "analytics": {
+                    "total_shipments": 0,
+                    "total_weight": 0,
+                    "total_declared_value": 0,
+                    "total_tariff": 0,
+                    "unique_destinations": 0,
+                    "unique_carriers": 0,
+                    "unique_receptacles": 0
+                },
+                "breakdown": {
+                    "by_destination": [],
+                    "by_carrier": [],
+                    "by_currency": []
+                }
+            })
+        
+        # Calculate analytics in backend
+        total_weight = 0
+        total_declared_value = 0
+        total_tariff = 0
+        destinations = set()
+        carriers = set()
+        receptacles = set()
+        currencies = {}
+        destination_breakdown = {}
+        carrier_breakdown = {}
+        
+        for entry in entries:
+            # Weight calculation
+            try:
+                weight = float(entry.bag_weight) if entry.bag_weight else 0
+                total_weight += weight
+            except:
+                pass
+            
+            # Declared value calculation - handle 'nan' string values properly
+            declared_val = 0
+            try:
+                if entry.declared_value and str(entry.declared_value).lower() not in ['nan', 'null', 'none', '']:
+                    # Try to convert to float, skip if it's actually the string 'nan'
+                    if str(entry.declared_value).lower() != 'nan':
+                        declared_val = float(entry.declared_value)
+                        total_declared_value += declared_val
+            except (ValueError, TypeError):
+                declared_val = 0
+            
+            # Tariff calculation - handle 'nan' string values properly
+            tariff = 0
+            try:
+                if entry.tariff_amount and str(entry.tariff_amount).lower() not in ['nan', 'null', 'none', '']:
+                    # Try to convert to float, skip if it's actually the string 'nan'
+                    if str(entry.tariff_amount).lower() != 'nan':
+                        tariff = float(entry.tariff_amount)
+                        total_tariff += tariff
+            except (ValueError, TypeError):
+                tariff = 0
+            
+            # Unique counts
+            if entry.host_destination_station:
+                destinations.add(entry.host_destination_station)
+                # Destination breakdown
+                dest = entry.host_destination_station
+                if dest not in destination_breakdown:
+                    destination_breakdown[dest] = {"count": 0, "weight": 0, "value": 0}
+                destination_breakdown[dest]["count"] += 1
+                destination_breakdown[dest]["weight"] += weight
+                if declared_val > 0:
+                    destination_breakdown[dest]["value"] += declared_val
+            
+            if entry.flight_carrier_1:
+                carriers.add(entry.flight_carrier_1)
+                # Carrier breakdown
+                carrier = entry.flight_carrier_1
+                if carrier not in carrier_breakdown:
+                    carrier_breakdown[carrier] = {"count": 0, "weight": 0, "value": 0}
+                carrier_breakdown[carrier]["count"] += 1
+                carrier_breakdown[carrier]["weight"] += weight
+                if declared_val > 0:
+                    carrier_breakdown[carrier]["value"] += declared_val
+            
+            if entry.receptacle_id:
+                receptacles.add(entry.receptacle_id)
+            
+            # Currency breakdown
+            if entry.currency:
+                if entry.currency not in currencies:
+                    currencies[entry.currency] = 0
+                currencies[entry.currency] += 1
+        
+        # Format breakdown data
+        dest_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
+                     "value": round(v["value"], 2)} for k, v in destination_breakdown.items()]
+        carrier_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
+                        "value": round(v["value"], 2)} for k, v in carrier_breakdown.items()]
+        currency_data = [{"name": k, "count": v} for k, v in currencies.items()]
+        
+        return jsonify({
+            "analytics": {
+                "total_shipments": len(entries),
+                "total_weight": round(total_weight, 2),
+                "total_declared_value": round(total_declared_value, 2),
+                "total_tariff": round(total_tariff, 2),
+                "unique_destinations": len(destinations),
+                "unique_carriers": len(carriers),
+                "unique_receptacles": len(receptacles)
+            },
+            "breakdown": {
+                "by_destination": dest_data,
+                "by_carrier": carrier_data,
+                "by_currency": currency_data
+            }
         })
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/generate-china-post', methods=['POST'])
-def generate_china_post():
-    """Generate China Post (Internal Use) output file"""
-    try:
-        # Check if we're getting processed data or need to process a file
-        if 'file' in request.files:
-            # Process uploaded file
-            file = request.files['file']
-            if file.filename == '':
-                return jsonify({"error": "No file selected"}), 400
-            
-            # Save and process file
-            temp_path = f"temp_cp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-            file.save(temp_path)
-            
-            try:
-                cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
-                processor = DataProcessor(IODA_DATA_FILE)
-                internal_df, cbp_df = processor.process_cnp_data(cnp_df)
-                
-                if internal_df is None or internal_df.empty:
-                    return jsonify({"error": "No Internal Use data processed"}), 400
-                
-                # Create Excel output with Internal Use format
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    internal_df.to_excel(writer, sheet_name='Internal Use Output', index=False)
-                output.seek(0)
-                
-            finally:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-        else:
-            # Use existing JSON data processing for backward compatibility
-            data = request.get_json()
-            if not data:
-                return jsonify({"error": "No data provided"}), 400
-            
-            df = pd.DataFrame(data)
-            
-            # Check for required columns (using old format for compatibility)
-            missing_cols = [col for col in CP_COLUMNS if col not in df.columns]
-            if missing_cols:
-                return jsonify({
-                    "error": "Missing required columns for China Post output",
-                    "missing_columns": missing_cols
-                }), 400
-            
-            # Generate file using old method
-            output = create_china_post_output(df)
-        
-        return send_file(
-            output,
-            as_attachment=True,
-            download_name=f"internal_use_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/generate-cbp', methods=['POST'])
-def generate_cbp():
-    """Generate CBP output file"""
-    try:
-        # Check if we're getting processed data or need to process a file
-        if 'file' in request.files:
-            # Process uploaded file
-            file = request.files['file']
-            if file.filename == '':
-                return jsonify({"error": "No file selected"}), 400
-            
-            # Save and process file
-            temp_path = f"temp_cbp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-            file.save(temp_path)
-            
-            try:
-                cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
-                processor = DataProcessor(IODA_DATA_FILE)
-                internal_df, cbp_df = processor.process_cnp_data(cnp_df)
-                
-                if cbp_df is None or cbp_df.empty:
-                    return jsonify({"error": "No CBP data processed"}), 400
-                
-                # Create Excel output with CBP format
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    cbp_df.to_excel(writer, sheet_name='CBP Output', index=False)
-                output.seek(0)
-                
-            finally:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-        else:
-            # Use existing JSON data processing for backward compatibility
-            data = request.get_json()
-            if not data:
-                return jsonify({"error": "No data provided"}), 400
-            
-            df = pd.DataFrame(data)
-            
-            # Check for required columns (using old format for compatibility)
-            missing_cols = [col for col in CBP_COLUMNS if col not in df.columns]
-            if missing_cols:
-                return jsonify({
-                    "error": "Missing required columns for CBP output",
-                    "missing_columns": missing_cols
-                }), 400
-            
-            # Generate file using old method
-            output = create_cbp_output(df)
-        
-        return send_file(
-            output,
-            as_attachment=True,
-            download_name=f"cbp_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/columns', methods=['GET'])
-def get_columns():
-    """Get the required column definitions"""
-    return jsonify({
-        "china_post_columns": CP_COLUMNS,
-        "cbp_columns": CBP_COLUMNS,
-        "total_unique_columns": list(set(CP_COLUMNS + CBP_COLUMNS))
-    })
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/delete-records', methods=['DELETE'])
 def delete_records():
@@ -641,7 +458,7 @@ def delete_records():
         # Delete records
         deleted_count = 0
         for record_id in record_ids:
-            entry = ShipmentEntry.query.get(record_id)
+            entry = ProcessedShipment.query.get(record_id)
             if entry:
                 db.session.delete(entry)
                 deleted_count += 1
@@ -657,100 +474,484 @@ def delete_records():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-@app.route('/update-record', methods=['PUT'])
-def update_record():
-    """Update a single shipment record"""
+@app.route('/clear-database', methods=['POST'])
+def clear_database():
+    """Clear all records from database"""
     try:
-        data = request.json
-        record_id = data.get('id')
-        updates = data.get('updates', {})
-        
-        if not record_id:
-            return jsonify({"error": "No record ID provided"}), 400
-        
-        if not updates:
-            return jsonify({"error": "No updates provided"}), 400
-        
-        # Find the record
-        entry = ShipmentEntry.query.get(record_id)
-        if not entry:
-            return jsonify({"error": "Record not found"}), 404
-        
-        # Map frontend field names to database field names
-        field_mapping = {
-            '*运单号 (AWB Number)': 'awb_number',
-            '*始发站（Departure station）': 'departure_station',
-            '*目的站（Destination）': 'destination',
-            '*件数(Pieces)': 'pieces',
-            '*重量 (Weight)': 'weight',
-            '航司(Airline)': 'airline',
-            '航班号 (Flight Number)': 'flight_number',
-            '航班日期 (Flight Date)': 'flight_date',
-            '一个航班的邮件item总数 (Total mail items per flight)': 'total_mail_items',
-            '一个航班的邮件总重量 (Total mail weight per flight)': 'total_mail_weight',
-            '*运价类型 (Rate Type)': 'rate_type',
-            '*费率 (Rate)': 'rate',
-            '*航空运费 (Air Freight)': 'air_freight',
-            "代理人的其他费用 (Agent's Other Charges)": 'agent_charges',
-            "承运人的其他费用 (Carrier's Other Charges)": 'carrier_charges',
-            '*总运费 (Total Charges)': 'total_charges',
-            'Carrier Code': 'carrier_code',
-            'Flight/ Trip Number': 'flight_number',
-            'Tracking Number': 'tracking_number',
-            'Arrival Port Code': 'arrival_port_code',
-            'Arrival Date': 'arrival_date',
-            'Declared Value (USD)': 'declared_value_usd'
-        }
-        
-        # Update the record
-        updated_fields = []
-        for frontend_field, value in updates.items():
-            db_field = field_mapping.get(frontend_field)
-            if db_field and hasattr(entry, db_field):
-                setattr(entry, db_field, str(value))
-                updated_fields.append(frontend_field)
-        
+        deleted_count = ProcessedShipment.query.count()
+        ProcessedShipment.query.delete()
         db.session.commit()
         
         return jsonify({
-            "message": f"Successfully updated record",
-            "updated_fields": updated_fields,
-            "record": entry.to_dict()
+            "message": f"Successfully cleared database",
+            "deleted_count": deleted_count
         })
         
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-@app.route('/routes', methods=['GET'])
-def get_routes():
-    """Get all unique route combinations from the database"""
+# ==================== TARIFF MANAGEMENT ENDPOINTS ====================
+
+@app.route('/tariff-routes', methods=['GET'])
+def get_tariff_routes():
+    """Get all unique routes from shipment data and their current tariff rates"""
     try:
-        # Query distinct departure_station and destination combinations
+        # Get all unique origin-destination pairs from processed shipments
         routes_query = db.session.query(
-            ShipmentEntry.departure_station,
-            ShipmentEntry.destination
+            ProcessedShipment.host_origin_station,
+            ProcessedShipment.host_destination_station,
+            func.count(ProcessedShipment.id).label('shipment_count'),
+            func.sum(func.cast(ProcessedShipment.declared_value, db.Float)).label('total_declared_value'),
+            func.sum(func.cast(ProcessedShipment.tariff_amount, db.Float)).label('total_tariff_amount')
         ).filter(
             and_(
-                ShipmentEntry.departure_station.isnot(None),
-                ShipmentEntry.destination.isnot(None),
-                ShipmentEntry.departure_station != '',
-                ShipmentEntry.destination != ''
+                ProcessedShipment.host_origin_station.isnot(None),
+                ProcessedShipment.host_destination_station.isnot(None),
+                ProcessedShipment.host_origin_station != '',
+                ProcessedShipment.host_destination_station != ''
             )
-        ).distinct().all()
+        ).group_by(
+            ProcessedShipment.host_origin_station,
+            ProcessedShipment.host_destination_station
+        ).all()
         
-        # Convert to list of route objects
         routes = []
-        for departure, destination in routes_query:
+        for route in routes_query:
+            origin = route.host_origin_station
+            destination = route.host_destination_station
+            
+            # Check if we have a configured tariff rate for this route
+            tariff_rate_config = TariffRate.query.filter_by(
+                origin_country=origin,
+                destination_country=destination
+            ).first()
+            
+            # Calculate effective rate from historical data
+            historical_rate = 0.0
+            if route.total_declared_value and route.total_declared_value > 0:
+                historical_rate = (route.total_tariff_amount or 0) / route.total_declared_value
+            
             routes.append({
-                'origin': departure,
+                'origin': origin,
                 'destination': destination,
-                'route_id': f"{departure}->{destination}"
+                'route': f"{origin} → {destination}",
+                'shipment_count': route.shipment_count,
+                'total_declared_value': round(route.total_declared_value or 0, 2),
+                'total_tariff_amount': round(route.total_tariff_amount or 0, 2),
+                'historical_rate': round(historical_rate, 4),
+                'configured_rate': tariff_rate_config.to_dict() if tariff_rate_config else None,
+                'has_configured_rate': tariff_rate_config is not None
             })
         
         return jsonify({
             'routes': routes,
             'total_routes': len(routes)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates', methods=['GET'])
+def get_tariff_rates():
+    """Get all configured tariff rates"""
+    try:
+        tariff_rates = TariffRate.query.filter_by(is_active=True).all()
+        
+        return jsonify({
+            'tariff_rates': [rate.to_dict() for rate in tariff_rates],
+            'total_rates': len(tariff_rates)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates', methods=['POST'])
+def create_tariff_rate():
+    """Create or update a tariff rate for a route"""
+    try:
+        data = request.json
+        origin = data.get('origin_country')
+        destination = data.get('destination_country')
+        
+        if not origin or not destination:
+            return jsonify({'error': 'Origin and destination countries are required'}), 400
+        
+        # Check if rate already exists
+        existing_rate = TariffRate.query.filter_by(
+            origin_country=origin,
+            destination_country=destination
+        ).first()
+        
+        if existing_rate:
+            # Update existing rate
+            existing_rate.tariff_rate = data.get('tariff_rate', existing_rate.tariff_rate)
+            existing_rate.minimum_tariff = data.get('minimum_tariff', existing_rate.minimum_tariff)
+            existing_rate.maximum_tariff = data.get('maximum_tariff', existing_rate.maximum_tariff)
+            existing_rate.currency = data.get('currency', existing_rate.currency)
+            existing_rate.is_active = data.get('is_active', existing_rate.is_active)
+            existing_rate.notes = data.get('notes', existing_rate.notes)
+            existing_rate.updated_at = datetime.now()
+            
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Tariff rate updated successfully',
+                'tariff_rate': existing_rate.to_dict()
+            })
+        else:
+            # Validate required fields
+            tariff_rate = data.get('tariff_rate')
+            if tariff_rate is None:
+                return jsonify({'error': 'tariff_rate is required'}), 400
+                
+            # Create new rate
+            new_rate = TariffRate(
+                origin_country=origin,
+                destination_country=destination,
+                tariff_rate=tariff_rate,
+                minimum_tariff=data.get('minimum_tariff', 0.0),
+                maximum_tariff=data.get('maximum_tariff'),
+                currency=data.get('currency', 'USD'),
+                is_active=data.get('is_active', True),
+                notes=data.get('notes', '')
+            )
+            
+            db.session.add(new_rate)
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Tariff rate created successfully',
+                'tariff_rate': new_rate.to_dict()
+            }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates/<int:rate_id>', methods=['PUT'])
+def update_tariff_rate(rate_id):
+    """Update a specific tariff rate"""
+    try:
+        tariff_rate = TariffRate.query.get(rate_id)
+        if not tariff_rate:
+            return jsonify({'error': 'Tariff rate not found'}), 404
+        
+        data = request.json
+        
+        # Update fields
+        tariff_rate.tariff_rate = data.get('tariff_rate', tariff_rate.tariff_rate)
+        tariff_rate.minimum_tariff = data.get('minimum_tariff', tariff_rate.minimum_tariff)
+        tariff_rate.maximum_tariff = data.get('maximum_tariff', tariff_rate.maximum_tariff)
+        tariff_rate.currency = data.get('currency', tariff_rate.currency)
+        tariff_rate.is_active = data.get('is_active', tariff_rate.is_active)
+        tariff_rate.notes = data.get('notes', tariff_rate.notes)
+        tariff_rate.updated_at = datetime.now()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Tariff rate updated successfully',
+            'tariff_rate': tariff_rate.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates/<int:rate_id>', methods=['DELETE'])
+def delete_tariff_rate(rate_id):
+    """Delete a tariff rate (soft delete by setting is_active=False)"""
+    try:
+        tariff_rate = TariffRate.query.get(rate_id)
+        if not tariff_rate:
+            return jsonify({'error': 'Tariff rate not found'}), 404
+        
+        tariff_rate.is_active = False
+        tariff_rate.updated_at = datetime.now()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Tariff rate deactivated successfully'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-system-defaults', methods=['GET'])
+def get_tariff_system_defaults():
+    """Get system defaults for tariff management"""
+    try:
+        # Calculate system-wide average rate from all processed shipments
+        totals_query = db.session.query(
+            func.sum(func.cast(ProcessedShipment.declared_value, db.Float)).label('total_declared_value'),
+            func.sum(func.cast(ProcessedShipment.tariff_amount, db.Float)).label('total_tariff_amount'),
+            func.count(ProcessedShipment.id).label('total_shipments')
+        ).first()
+        
+        system_average_rate = 0.0
+        if (totals_query.total_declared_value and 
+            totals_query.total_declared_value > 0 and 
+            totals_query.total_tariff_amount):
+            system_average_rate = totals_query.total_tariff_amount / totals_query.total_declared_value
+        
+        # Get common ranges from existing data
+        min_tariff_query = db.session.query(func.min(func.cast(ProcessedShipment.tariff_amount, db.Float))).scalar() or 0.0
+        max_tariff_query = db.session.query(func.max(func.cast(ProcessedShipment.tariff_amount, db.Float))).scalar() or 100.0
+        
+        return jsonify({
+            'system_defaults': {
+                'default_tariff_rate': round(system_average_rate, 4) if system_average_rate > 0 else 0.8,
+                'default_minimum_tariff': max(0.0, round(min_tariff_query, 2)),
+                'suggested_maximum_tariff': round(max_tariff_query * 1.2, 2),  # 20% buffer above highest historical
+                'default_currency': 'USD'
+            },
+            'system_stats': {
+                'total_shipments': totals_query.total_shipments or 0,
+                'total_declared_value': round(totals_query.total_declared_value or 0, 2),
+                'total_tariff_amount': round(totals_query.total_tariff_amount or 0, 2),
+                'average_rate': round(system_average_rate, 4) if system_average_rate > 0 else 0.0
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/calculate-tariff', methods=['POST'])
+def calculate_tariff():
+    """Calculate tariff for a given route and declared value"""
+    try:
+        data = request.json
+        origin = data.get('origin_country')
+        destination = data.get('destination_country')
+        declared_value = float(data.get('declared_value', 0))
+        
+        if not origin or not destination or declared_value <= 0:
+            return jsonify({'error': 'Valid origin, destination, and declared value are required'}), 400
+        
+        # Find tariff rate for this route
+        tariff_rate = TariffRate.query.filter_by(
+            origin_country=origin,
+            destination_country=destination,
+            is_active=True
+        ).first()
+        
+        if not tariff_rate:
+            # Calculate suggested rate from historical data if available
+            historical_query = db.session.query(
+                func.sum(func.cast(ProcessedShipment.declared_value, db.Float)).label('total_declared_value'),
+                func.sum(func.cast(ProcessedShipment.tariff_amount, db.Float)).label('total_tariff_amount')
+            ).filter(
+                and_(
+                    ProcessedShipment.host_origin_station == origin,
+                    ProcessedShipment.host_destination_station == destination
+                )
+            ).first()
+            
+            suggested_rate = 0.0
+            suggested_tariff = 0.0
+            
+            if (historical_query.total_declared_value and 
+                historical_query.total_declared_value > 0 and 
+                historical_query.total_tariff_amount):
+                suggested_rate = historical_query.total_tariff_amount / historical_query.total_declared_value
+                suggested_tariff = declared_value * suggested_rate
+            
+            return jsonify({
+                'error': f'No tariff rate configured for route {origin} → {destination}',
+                'suggested_rate': round(suggested_rate, 4) if suggested_rate > 0 else None,
+                'suggested_tariff': round(suggested_tariff, 2) if suggested_tariff > 0 else None,
+                'message': 'Please configure a tariff rate for this route in the Tariff Management section'
+            }), 404
+        
+        calculated_tariff = tariff_rate.calculate_tariff(declared_value)
+        
+        return jsonify({
+            'origin_country': origin,
+            'destination_country': destination,
+            'declared_value': declared_value,
+            'tariff_rate': tariff_rate.tariff_rate,
+            'minimum_tariff': tariff_rate.minimum_tariff,
+            'maximum_tariff': tariff_rate.maximum_tariff,
+            'calculated_tariff': calculated_tariff,
+            'currency': tariff_rate.currency
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/cbp-analytics', methods=['GET', 'POST'])
+def get_cbp_analytics():
+    """Get CBP-specific analytics - BACKEND PROCESSED ONLY"""
+    try:
+        # Get query parameters for date filtering (same logic as get_analytics_data)
+        query = ProcessedShipment.query
+        
+        if request.method == 'POST':
+            data = request.json or {}
+            start_date = data.get('startDate')
+            end_date = data.get('endDate')
+            
+            if start_date and end_date:
+                query = query.filter(
+                    and_(
+                        ProcessedShipment.arrival_date.isnot(None),
+                        ProcessedShipment.arrival_date != '',
+                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
+                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
+                    )
+                )
+        
+        entries = query.all()
+        
+        if not entries:
+            return jsonify({
+                'total_value': 0,
+                'total_records': 0,
+                'unique_carriers': 0,
+                'unique_ports': 0,
+                'average_value': 0
+            })
+        
+        # Calculate CBP-specific analytics in backend
+        total_value = 0
+        carriers = set()
+        ports = set()
+        
+        for entry in entries:
+            # Declared value calculation - handle 'nan' string values properly
+            try:
+                if entry.declared_value and str(entry.declared_value).lower() not in ['nan', 'null', 'none', '']:
+                    # Try to convert to float, skip if it's actually the string 'nan'
+                    if str(entry.declared_value).lower() != 'nan':
+                        declared_val = float(entry.declared_value)
+                        total_value += declared_val
+            except (ValueError, TypeError):
+                pass
+            
+            # Unique carriers and ports
+            if entry.carrier_code:
+                carriers.add(entry.carrier_code)
+            if entry.arrival_port_code:
+                ports.add(entry.arrival_port_code)
+        
+        return jsonify({
+            'total_value': round(total_value, 2),
+            'total_records': len(entries),
+            'unique_carriers': len(carriers),
+            'unique_ports': len(ports),
+            'average_value': round(total_value / len(entries), 2) if len(entries) > 0 else 0
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/chinapost-analytics', methods=['GET', 'POST'])
+def get_chinapost_analytics():
+    """Get China Post-specific analytics - BACKEND PROCESSED ONLY"""
+    try:
+        # Get query parameters for date filtering (same logic as get_analytics_data)
+        query = ProcessedShipment.query
+        
+        if request.method == 'POST':
+            data = request.json or {}
+            start_date = data.get('startDate')
+            end_date = data.get('endDate')
+            
+            if start_date and end_date:
+                query = query.filter(
+                    and_(
+                        ProcessedShipment.arrival_date.isnot(None),
+                        ProcessedShipment.arrival_date != '',
+                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
+                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
+                    )
+                )
+        
+        entries = query.all()
+        
+        if not entries:
+            return jsonify({
+                'total_weight': 0,
+                'total_declared_value': 0,
+                'total_records': 0,
+                'total_tariff': 0,
+                'unique_carriers': 0,
+                'unique_destinations': 0,
+                'unique_flights': 0,
+                'average_weight': 0,
+                'average_value': 0,
+                'currency_breakdown': {}
+            })
+        
+        # Calculate China Post analytics in backend
+        total_weight = 0
+        total_declared_value = 0
+        total_tariff = 0
+        carriers = set()
+        destinations = set()
+        flights = set()
+        currencies = {}
+        
+        for entry in entries:
+            # Weight calculation
+            try:
+                weight = float(entry.bag_weight) if entry.bag_weight else 0
+                total_weight += weight
+            except:
+                pass
+            
+            # Declared value calculation - handle 'nan' string values properly
+            declared_val = 0
+            try:
+                if entry.declared_value and str(entry.declared_value).lower() not in ['nan', 'null', 'none', '']:
+                    # Try to convert to float, skip if it's actually the string 'nan'
+                    if str(entry.declared_value).lower() != 'nan':
+                        declared_val = float(entry.declared_value)
+                        total_declared_value += declared_val
+            except (ValueError, TypeError):
+                declared_val = 0
+            
+            # Tariff calculation - handle 'nan' string values properly
+            try:
+                if entry.tariff_amount and str(entry.tariff_amount).lower() not in ['nan', 'null', 'none', '']:
+                    # Try to convert to float, skip if it's actually the string 'nan'
+                    if str(entry.tariff_amount).lower() != 'nan':
+                        tariff = float(entry.tariff_amount)
+                        total_tariff += tariff
+            except (ValueError, TypeError):
+                pass
+            
+            # Unique counts
+            if entry.flight_carrier_1:
+                carriers.add(entry.flight_carrier_1)
+            if entry.host_destination_station:
+                destinations.add(entry.host_destination_station)
+            if entry.flight_number_1:
+                flights.add(entry.flight_number_1)
+            
+            # Currency breakdown - filter out invalid currency values
+            currency = entry.currency
+            if currency and currency.lower() not in ['nan', 'null', 'none', '']:
+                if currency not in currencies:
+                    currencies[currency] = {'count': 0, 'totalValue': 0}
+                currencies[currency]['count'] += 1
+                if declared_val > 0:
+                    currencies[currency]['totalValue'] += declared_val
+        
+        return jsonify({
+            'total_weight': round(total_weight, 2),
+            'total_declared_value': round(total_declared_value, 2),
+            'total_records': len(entries),
+            'total_tariff': round(total_tariff, 2),
+            'unique_carriers': len(carriers),
+            'unique_destinations': len(destinations),
+            'unique_flights': len(flights),
+            'average_weight': round(total_weight / len(entries), 2) if len(entries) > 0 else 0,
+            'average_value': round(total_declared_value / len(entries), 2) if len(entries) > 0 else 0,
+            'currency_breakdown': currencies
         })
         
     except Exception as e:

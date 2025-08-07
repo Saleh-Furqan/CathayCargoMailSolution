@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Download,
   Eye,
@@ -8,6 +8,7 @@ import {
   Plane,
   MapPin,
 } from 'lucide-react';
+import { apiService } from '../../services/api';
 
 interface CBPSectionProps {
   data: any[];
@@ -19,24 +20,48 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCarrier, setSelectedCarrier] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [analytics, setAnalytics] = useState<any>(null);
   const itemsPerPage = 10;
 
-  // Extract CBP-specific data
+  // Use backend-provided data - NO FRONTEND PROCESSING
   const cbpData = data.map(item => ({
-    carrierCode: item['Carrier Code'],
-    flightTripNumber: item['Flight/ Trip Number'],
-    trackingNumber: item['Tracking Number'],
-    arrivalPortCode: item['Arrival Port Code'],
-    arrivalDate: item['Arrival Date'],
-    declaredValue: item['Declared Value (USD)'],
-    // Additional fields for context
-    awbNumber: item['*运单号 (AWB Number)'],
-    origin: item['*始发站（Departure station）'],
-    destination: item['*目的站（Destination）'],
-    pieces: item['*件数(Pieces)'],
-    weight: item['*重量 (Weight)'],
+    carrierCode: item.carrier_code || '',
+    flightTripNumber: item.flight_trip_number || '',
+    trackingNumber: item.tracking_number || '',
+    arrivalPortCode: item.arrival_port_code || '',
+    arrivalDate: item.arrival_date_formatted || item.arrival_date || '',
+    declaredValue: item.declared_value_usd || item.declared_value || '',
+    // Additional backend fields for context
+    pawb: item.pawb || '',
+    cardit: item.cardit || '',
+    receptacle: item.receptacle_id || '',
+    weight: item.bag_weight || '',
+    content: item.declared_content || '',
   }));
-  console.log(cbpData);
+
+  // Fetch analytics from backend - NO FRONTEND CALCULATIONS
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        const analyticsData = await apiService.getCBPAnalytics();
+        setAnalytics(analyticsData);
+      } catch (error) {
+        console.error('Error fetching CBP analytics:', error);
+        // Set empty analytics on error
+        setAnalytics({
+          total_value: 0,
+          total_records: 0,
+          unique_carriers: 0,
+          unique_ports: 0,
+          average_value: 0
+        });
+      }
+    };
+
+    if (data.length > 0) {
+      fetchAnalytics();
+    }
+  }, [data]);
 
   // Filter data
   const filteredData = cbpData.filter(item => {
@@ -55,30 +80,19 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
 
-  // Analytics
-  const analytics = React.useMemo(() => {
-    const totalValue = cbpData.reduce((sum, item) => {
-      const value = item.declaredValue;
-      if (typeof value === 'string') {
-        return sum + (parseFloat(value.replace('$', '').replace(',', '')) || 0);
-      }
-      return sum + (value || 0);
-    }, 0);
-
-    const totalPackages = cbpData.reduce((sum, item) => sum + (item.pieces || 0), 0);
-    const uniqueCarriers = new Set(cbpData.map(item => item.carrierCode)).size;
-    const uniquePorts = new Set(cbpData.map(item => item.arrivalPortCode)).size;
-
-    return {
-      totalValue: Math.round(totalValue * 100) / 100,
-      totalPackages,
-      uniqueCarriers,
-      uniquePorts,
-      averageValue: Math.round((totalValue / cbpData.length) * 100) / 100,
-    };
-  }, [cbpData]);
-
   const uniqueCarriers = [...new Set(cbpData.map(item => item.carrierCode))].filter(Boolean);
+
+  // Use backend analytics or show loading state
+  if (!analytics) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cathay-teal mx-auto"></div>
+          <p className="text-gray-600 mt-2">Loading CBP analytics...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -116,16 +130,16 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
         </div>
       )}
 
-      {/* Analytics Cards */}
+      {/* Analytics Cards - All data from backend */}
       <div className="flex flex-wrap gap-4 sm:gap-6">
         {/* Total Declared Value - Dynamic width for large currency amounts */}
         <div className={`card p-6 flex-shrink-0 ${
-          analytics.totalValue > 999999999 ? 'min-w-[320px]' :
-          analytics.totalValue > 99999999 ? 'min-w-[300px]' :
-          analytics.totalValue > 9999999 ? 'min-w-[280px]' :
-          analytics.totalValue > 999999 ? 'min-w-[250px]' :
-          analytics.totalValue > 99999 ? 'min-w-[220px]' :
-          analytics.totalValue > 9999 ? 'min-w-[200px]' : 'min-w-[180px]'
+          analytics.total_value > 999999999 ? 'min-w-[320px]' :
+          analytics.total_value > 99999999 ? 'min-w-[300px]' :
+          analytics.total_value > 9999999 ? 'min-w-[280px]' :
+          analytics.total_value > 999999 ? 'min-w-[250px]' :
+          analytics.total_value > 99999 ? 'min-w-[220px]' :
+          analytics.total_value > 9999 ? 'min-w-[200px]' : 'min-w-[180px]'
         }`}>
           <div className="flex items-center space-x-3">
             <div className="p-3 rounded-lg bg-blue-500 flex-shrink-0">
@@ -133,24 +147,24 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Declared Value</p>
-              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.totalValue.toLocaleString()}</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.total_value.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        {/* Total Packages - Dynamic width */}
+        {/* Total Records - Dynamic width */}
         <div className={`card p-6 flex-shrink-0 ${
-          analytics.totalPackages > 999999 ? 'min-w-[200px]' :
-          analytics.totalPackages > 99999 ? 'min-w-[180px]' :
-          analytics.totalPackages > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
+          analytics.total_records > 999999 ? 'min-w-[200px]' :
+          analytics.total_records > 99999 ? 'min-w-[180px]' :
+          analytics.total_records > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
         }`}>
           <div className="flex items-center space-x-3">
             <div className="p-3 rounded-lg bg-green-500 flex-shrink-0">
               <Package className="h-6 w-6 text-white" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Packages</p>
-              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{analytics.totalPackages.toLocaleString()}</p>
+              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Total Records</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{analytics.total_records.toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -163,7 +177,7 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Carriers</p>
-              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.uniqueCarriers}</p>
+              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.unique_carriers}</p>
             </div>
           </div>
         </div>
@@ -176,17 +190,17 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Ports</p>
-              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.uniquePorts}</p>
+              <p className="text-xl font-bold text-gray-900 leading-none">{analytics.unique_ports}</p>
             </div>
           </div>
         </div>
 
         {/* Average Value - Dynamic width for currency */}
         <div className={`card p-6 flex-shrink-0 ${
-          analytics.averageValue > 9999999 ? 'min-w-[240px]' :
-          analytics.averageValue > 999999 ? 'min-w-[220px]' :
-          analytics.averageValue > 99999 ? 'min-w-[200px]' :
-          analytics.averageValue > 9999 ? 'min-w-[180px]' : 'min-w-[160px]'
+          analytics.average_value > 9999999 ? 'min-w-[240px]' :
+          analytics.average_value > 999999 ? 'min-w-[220px]' :
+          analytics.average_value > 99999 ? 'min-w-[200px]' :
+          analytics.average_value > 9999 ? 'min-w-[180px]' : 'min-w-[160px]'
         }`}>
           <div className="flex items-center space-x-3">
             <div className="p-3 rounded-lg bg-teal-500 flex-shrink-0">
@@ -194,24 +208,7 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Average Value</p>
-              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.averageValue.toLocaleString()}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Records Processed - Dynamic width */}
-        <div className={`card p-6 flex-shrink-0 ${
-          cbpData.length > 999999 ? 'min-w-[200px]' :
-          cbpData.length > 99999 ? 'min-w-[180px]' :
-          cbpData.length > 9999 ? 'min-w-[160px]' : 'min-w-[140px]'
-        }`}>
-          <div className="flex items-center space-x-3">
-            <div className="p-3 rounded-lg bg-indigo-500 flex-shrink-0">
-              <Package className="h-6 w-6 text-white" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-600 leading-tight mb-1">Records</p>
-              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">{cbpData.length.toLocaleString()}</p>
+              <p className="text-xl font-bold text-gray-900 leading-none whitespace-nowrap">${analytics.average_value.toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -261,19 +258,22 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Carrier & Flight
+                  Carrier Code
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Flight/Trip Number
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tracking Number
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Arrival Info
+                  Arrival Port Code
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Package Details
+                  Arrival Date
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Declared Value
+                  Declared Value (USD)
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
@@ -284,30 +284,27 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
               {paginatedData.map((item, index) => (
                 <tr key={index} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{item.carrierCode}</div>
-                      <div className="text-sm text-gray-500">{item.flightTripNumber}</div>
-                    </div>
+                    <div className="text-sm font-medium text-gray-900">{item.carrierCode || 'N/A'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-mono text-gray-900">{item.trackingNumber}</div>
-                    <div className="text-sm text-gray-500">{item.awbNumber}</div>
+                    <div className="text-sm text-gray-900">{item.flightTripNumber || 'N/A'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">Port {item.arrivalPortCode}</div>
-                      <div className="text-sm text-gray-500">{item.arrivalDate}</div>
-                    </div>
+                    <div className="text-sm font-mono text-gray-900">{item.trackingNumber || 'N/A'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm text-gray-900">{item.pieces} pieces</div>
-                      <div className="text-sm text-gray-500">{item.weight} kg</div>
-                    </div>
+                    <div className="text-sm font-medium text-gray-900">{item.arrivalPortCode || 'N/A'}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-500">{item.arrivalDate || 'N/A'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      {typeof item.declaredValue === 'string' ? item.declaredValue : `$${item.declaredValue}`}
+                      {item.declaredValue ? (
+                        typeof item.declaredValue === 'string' 
+                          ? item.declaredValue.startsWith('$') ? item.declaredValue : `$${item.declaredValue}`
+                          : `$${item.declaredValue}`
+                      ) : 'N/A'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">

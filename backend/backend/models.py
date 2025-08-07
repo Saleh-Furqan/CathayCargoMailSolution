@@ -3,80 +3,140 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
-class ShipmentEntry(db.Model):
-    """Model for storing processed workflow data from CNP + IODA merge"""
-    __tablename__ = 'shipments'
+class TariffRate(db.Model):
+    """Model for storing tariff rates between countries/stations"""
+    __tablename__ = 'tariff_rates'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'origin_country', 
+            'destination_country',
+            name='uix_tariff_route'
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Route definition
+    origin_country = db.Column(db.String(100), nullable=False)  # Origin country/station
+    destination_country = db.Column(db.String(100), nullable=False)  # Destination country/station
+    
+    # Tariff configuration
+    tariff_rate = db.Column(db.Float, default=0.8)  # Tariff rate (e.g., 0.8 = 80%)
+    minimum_tariff = db.Column(db.Float, default=0.0)  # Minimum tariff amount
+    maximum_tariff = db.Column(db.Float, default=None)  # Maximum tariff amount (optional)
+    
+    # Additional metadata
+    currency = db.Column(db.String(10), default='USD')
+    is_active = db.Column(db.Boolean, default=True)
+    notes = db.Column(db.Text)
+    
+    def to_dict(self):
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'created_at': self.created_at.isoformat() if self.created_at else '',
+            'updated_at': self.updated_at.isoformat() if self.updated_at else '',
+            'origin_country': self.origin_country,
+            'destination_country': self.destination_country,
+            'tariff_rate': self.tariff_rate,
+            'minimum_tariff': self.minimum_tariff,
+            'maximum_tariff': self.maximum_tariff,
+            'currency': self.currency,
+            'is_active': self.is_active,
+            'notes': self.notes or ''
+        }
+    
+    def calculate_tariff(self, declared_value):
+        """Calculate tariff amount for a given declared value"""
+        if not self.is_active or declared_value <= 0:
+            return 0.0
+        
+        tariff_amount = declared_value * self.tariff_rate
+        
+        # Apply minimum tariff
+        if tariff_amount < self.minimum_tariff:
+            tariff_amount = self.minimum_tariff
+        
+        # Apply maximum tariff if set
+        if self.maximum_tariff and tariff_amount > self.maximum_tariff:
+            tariff_amount = self.maximum_tariff
+        
+        return round(tariff_amount, 2)
+
+class ProcessedShipment(db.Model):
+    """Model for storing processed CHINAPOST export data (the complete workflow output)"""
+    __tablename__ = 'processed_shipments'
     __table_args__ = (
         db.UniqueConstraint(
             'tracking_number', 
             'receptacle_id',
-            'flight_number',
-            'flight_date',
+            'pawb',
             name='uix_shipment_unique'
         ),
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     
-    # Core identification fields
-    pawb = db.Column(db.String(100))  # Pre-Alert AWB
-    cardit = db.Column(db.String(100))  # CARDIT reference
-    tracking_number = db.Column(db.String(100))  # Individual package tracking
-    receptacle_id = db.Column(db.String(200))  # Receptacle/bag identifier
+    # Core identification fields (from CHINAPOST export structure)
+    sequence_number = db.Column(db.String(10))  # The unnamed first column (1, 2, 3...)
+    pawb = db.Column(db.String(100))  # PAWB
+    cardit = db.Column(db.String(100))  # CARDIT
+    tracking_number = db.Column(db.String(100))  # Tracking Number
+    receptacle_id = db.Column(db.String(200))  # Receptacle
     
-    # Flight information
-    host_origin_station = db.Column(db.String(50))  # Origin airport
-    host_destination_station = db.Column(db.String(50))  # Destination airport
-    flight_carrier_1 = db.Column(db.String(50))  # Primary carrier
-    flight_number_1 = db.Column(db.String(50))  # Primary flight number
-    flight_date_1 = db.Column(db.String(50))  # Primary flight date
-    flight_carrier_2 = db.Column(db.String(50))  # Secondary carrier (if any)
-    flight_number_2 = db.Column(db.String(50))  # Secondary flight number (if any)
-    flight_date_2 = db.Column(db.String(50))  # Secondary flight date (if any)
-    arrival_date = db.Column(db.String(50))  # Final arrival date
-    uld_number = db.Column(db.String(50))  # ULD container number
+    # Flight and routing information
+    host_origin_station = db.Column(db.String(50))  # Host Origin Station
+    host_destination_station = db.Column(db.String(50))  # Host Destination Station
     
-    # Package/Receptacle details
-    bag_weight = db.Column(db.String(50))  # Weight of receptacle/bag
-    bag_number = db.Column(db.String(50))  # Bag number from CNP
-    packets_in_receptacle = db.Column(db.String(50))  # Number of packets in receptacle
+    # Dynamic flight leg fields (can have 1, 2, 3... legs)
+    flight_carrier_1 = db.Column(db.String(50))  # Flight Carrier 1
+    flight_number_1 = db.Column(db.String(50))  # Flight Number 1
+    flight_date_1 = db.Column(db.String(50))  # Flight Date 1
+    flight_carrier_2 = db.Column(db.String(50))  # Flight Carrier 2
+    flight_number_2 = db.Column(db.String(50))  # Flight Number 2
+    flight_date_2 = db.Column(db.String(50))  # Flight Date 2
+    flight_carrier_3 = db.Column(db.String(50))  # Flight Carrier 3 (if needed)
+    flight_number_3 = db.Column(db.String(50))  # Flight Number 3 (if needed)
+    flight_date_3 = db.Column(db.String(50))  # Flight Date 3 (if needed)
     
-    # Content and customs information
-    declared_content = db.Column(db.Text)  # Item description
-    hs_code = db.Column(db.String(50))  # Harmonized System code
-    declared_value = db.Column(db.String(50))  # Original declared value
-    currency = db.Column(db.String(10))  # Currency of declared value
-    declared_value_usd = db.Column(db.String(50))  # Converted to USD
-    tariff_amount = db.Column(db.String(50))  # Calculated tariff (80% of declared value)
+    # Arrival and ULD information
+    arrival_date = db.Column(db.String(50))  # Arrival Date
+    arrival_uld_number = db.Column(db.String(100))  # Arrival ULD number
     
-    # CBP specific fields
-    carrier_code = db.Column(db.String(50))  # For CBP submission
-    arrival_port_code = db.Column(db.String(50))  # Port code for CBP
+    # Package and content details
+    bag_weight = db.Column(db.String(50))  # Bag weight
+    bag_number = db.Column(db.String(50))  # Bag Number
+    declared_content = db.Column(db.Text)  # Declared content
+    hs_code = db.Column(db.String(100))  # HS Code
+    declared_value = db.Column(db.String(50))  # Declared Value
+    currency = db.Column(db.String(10))  # Currency
+    number_of_packets = db.Column(db.String(50))  # Number of Packet under same receptacle
+    tariff_amount = db.Column(db.String(50))  # Tariff amount (80% of declared value)
     
-    # Legacy fields for backward compatibility (populated from new fields)
-    awb_number = db.Column(db.String(50))  # Maps to PAWB
-    departure_station = db.Column(db.String(100))  # Maps to host_origin_station
-    destination = db.Column(db.String(100))  # Maps to host_destination_station
-    weight = db.Column(db.String(50))  # Maps to bag_weight
-    airline = db.Column(db.String(50))  # Maps to flight_carrier_1
-    flight_number = db.Column(db.String(50))  # Maps to flight_number_1
-    flight_date = db.Column(db.String(50))  # Maps to flight_date_1
-    total_charges = db.Column(db.String(50))  # Maps to tariff_amount
+    # CBD export derived fields (computed from CHINAPOST data)
+    carrier_code = db.Column(db.String(50))  # Highest leg carrier for CBD
+    flight_trip_number = db.Column(db.String(50))  # Highest leg flight for CBD
+    arrival_port_code = db.Column(db.String(50))  # Port code for CBD
+    arrival_date_formatted = db.Column(db.String(50))  # Formatted date for CBD
+    declared_value_usd = db.Column(db.String(50))  # USD formatted value for CBD
 
     def to_dict(self):
-        """Convert entry to dictionary with complete workflow data"""
+        """Convert entry to dictionary for API responses"""
         return {
             'id': self.id,
             'created_at': self.created_at.isoformat() if self.created_at else '',
             
             # Core identification
+            'sequence_number': self.sequence_number or '',
             'pawb': self.pawb or '',
             'cardit': self.cardit or '',
             'tracking_number': self.tracking_number or '',
             'receptacle_id': self.receptacle_id or '',
             
-            # Flight information
+            # Flight and routing
             'host_origin_station': self.host_origin_station or '',
             'host_destination_station': self.host_destination_station or '',
             'flight_carrier_1': self.flight_carrier_1 or '',
@@ -85,33 +145,70 @@ class ShipmentEntry(db.Model):
             'flight_carrier_2': self.flight_carrier_2 or '',
             'flight_number_2': self.flight_number_2 or '',
             'flight_date_2': self.flight_date_2 or '',
+            'flight_carrier_3': self.flight_carrier_3 or '',
+            'flight_number_3': self.flight_number_3 or '',
+            'flight_date_3': self.flight_date_3 or '',
+            
+            # Arrival and ULD
             'arrival_date': self.arrival_date or '',
-            'uld_number': self.uld_number or '',
+            'arrival_uld_number': self.arrival_uld_number or '',
             
             # Package details
             'bag_weight': self.bag_weight or '',
             'bag_number': self.bag_number or '',
-            'packets_in_receptacle': self.packets_in_receptacle or '',
-            
-            # Content and customs
             'declared_content': self.declared_content or '',
             'hs_code': self.hs_code or '',
             'declared_value': self.declared_value or '',
             'currency': self.currency or '',
-            'declared_value_usd': self.declared_value_usd or '',
+            'number_of_packets': self.number_of_packets or '',
             'tariff_amount': self.tariff_amount or '',
             
-            # CBP fields
+            # CBD export fields
             'carrier_code': self.carrier_code or '',
+            'flight_trip_number': self.flight_trip_number or '',
             'arrival_port_code': self.arrival_port_code or '',
-            
-            # Legacy fields for backward compatibility
-            'awb_number': self.awb_number or self.pawb or '',
-            'departure_station': self.departure_station or self.host_origin_station or '',
-            'destination': self.destination or self.host_destination_station or '',
-            'weight': self.weight or self.bag_weight or '',
-            'airline': self.airline or self.flight_carrier_1 or '',
-            'flight_number': self.flight_number or self.flight_number_1 or '',
-            'flight_date': self.flight_date or self.flight_date_1 or '',
-            'total_charges': self.total_charges or self.tariff_amount or ''
+            'arrival_date_formatted': self.arrival_date_formatted or '',
+            'declared_value_usd': self.declared_value_usd or ''
+        }
+    
+    def to_chinapost_format(self):
+        """Convert to CHINAPOST export format for frontend display"""
+        return {
+            '': self.sequence_number or '',
+            'PAWB': self.pawb or '',
+            'CARDIT': self.cardit or '',
+            'Host Origin Station': self.host_origin_station or '',
+            'Host Destination Station': self.host_destination_station or '',
+            'Flight Carrier 1': self.flight_carrier_1 or '',
+            'Flight Number 1': self.flight_number_1 or '',
+            'Flight Date 1': self.flight_date_1 or '',
+            'Flight Carrier 2': self.flight_carrier_2 or '',
+            'Flight Number 2': self.flight_number_2 or '',
+            'Flight Date 2': self.flight_date_2 or '',
+            'Flight Carrier 3': self.flight_carrier_3 or '',
+            'Flight Number 3': self.flight_number_3 or '',
+            'Flight Date 3': self.flight_date_3 or '',
+            'Arrival Date': self.arrival_date or '',
+            'Arrival ULD number': self.arrival_uld_number or '',
+            'Receptacle': self.receptacle_id or '',
+            'Bag weight': self.bag_weight or '',
+            'Bag Number': self.bag_number or '',
+            'Tracking Number': self.tracking_number or '',
+            'Declared content': self.declared_content or '',
+            'HS Code': self.hs_code or '',
+            'Declared Value': self.declared_value or '',
+            'Currency': self.currency or '',
+            'Number of Packet under same receptacle': self.number_of_packets or '',
+            'Tariff amount': self.tariff_amount or ''
+        }
+    
+    def to_cbd_format(self):
+        """Convert to CBD export format for frontend display"""
+        return {
+            'Carrier Code': self.carrier_code or '',
+            'Flight/Trip Number': self.flight_trip_number or '',
+            'Tracking Number': self.tracking_number or '',
+            'Arrival Port Code': self.arrival_port_code or '',
+            'Arrival Date': self.arrival_date_formatted or '',
+            'Declared Value (USD)': self.declared_value_usd or ''
         }

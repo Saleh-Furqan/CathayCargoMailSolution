@@ -10,9 +10,7 @@ import {
   ChevronRight,
   Edit3,
   Trash2,
-  X,
-  Save,
-  RotateCcw
+  X
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { downloadBlob } from '../services/api';
@@ -21,43 +19,6 @@ import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
 import Notification from '../components/Notification/Notification';
 
-interface EditableCellProps {
-  value: any;
-  field: string;
-  recordId: number;
-  isEditing: boolean;
-  onChange: (recordId: number, field: string, value: any) => void;
-}
-
-const EditableCell: React.FC<EditableCellProps> = ({ value, field, recordId, isEditing, onChange }) => {
-  if (!isEditing) {
-    return (
-      <span>
-        {field === '*总运费 (Total Charges)' && typeof value === 'number' 
-          ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
-          : String(value || '')
-        }
-      </span>
-    );
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = field === '*总运费 (Total Charges)' || field === '*重量 (Weight)' 
-      ? parseFloat(e.target.value) || 0 
-      : e.target.value;
-    onChange(recordId, field, newValue);
-  };
-
-  return (
-    <input
-      type={field === '*总运费 (Total Charges)' || field === '*重量 (Weight)' ? 'number' : 'text'}
-      value={value || ''}
-      onChange={handleChange}
-      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      autoFocus
-    />
-  );
-};
 
 const HistoricalData: React.FC = () => {
   const [startDate, setStartDate] = useState('');
@@ -65,15 +26,14 @@ const HistoricalData: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'cbp' | 'china-post'>('overview');
   const [historicalData, setHistoricalData] = useState<any[]>([]);
+  const [rawBackendData, setRawBackendData] = useState<any[]>([]); // Store raw backend data for CBP/China Post
   const [processResult, setProcessResult] = useState<any>(null);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage] = useState(10);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedRecords, setSelectedRecords] = useState<Set<number>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
-  const [editingRows, setEditingRows] = useState<Set<number>>(new Set());
-  const [editedData, setEditedData] = useState<Record<number, Record<string, any>>>({});
-  const [savingRows, setSavingRows] = useState<Set<number>>(new Set());
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -89,15 +49,11 @@ const HistoricalData: React.FC = () => {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedRecords(new Set()); // Clear selections when data changes
-    setEditingRows(new Set()); // Clear editing state when data changes
-    setEditedData({}); // Clear edited data when data changes
-  }, [historicalData]);
+  }, [historicalData, rawBackendData]);
 
   // Clear selections and exit edit mode when switching tabs
   useEffect(() => {
     setSelectedRecords(new Set());
-    setEditingRows(new Set());
-    setEditedData({});
     if (activeTab !== 'overview') {
       setIsEditMode(false);
     }
@@ -117,43 +73,63 @@ const HistoricalData: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const response = await apiService.getHistoricalData(startDate, endDate);
       
-      // Format data for consistency with ingestion format
-      const formattedData = response.data.map(item => ({
-        id: item.id, // Include database ID for deletion
-        '*运单号 (AWB Number)': item.awb_number,
-        '*始发站（Departure station）': item.departure_station,
-        '*目的站（Destination）': item.destination,
-        '*件数(Pieces)': parseFloat(item.pieces || 0),
-        '*重量 (Weight)': parseFloat(item.weight || 0),
-        '航司(Airline)': item.airline,
-        '航班号 (Flight Number)': item.flight_number,
-        '航班日期 (Flight Date)': item.flight_date,
-        '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
-        '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
-        '*运价类型 (Rate Type)': item.rate_type,
-        '*费率 (Rate)': parseFloat(item.rate || 0),
-        '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
-        "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
-        "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
-        '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
-        'Carrier Code': item.carrier_code || item.airline,
-        'Flight/ Trip Number': item.flight_number,
-        'Tracking Number': item.tracking_number || item.awb_number,
-        'Arrival Port Code': item.arrival_port_code || item.destination,
-        'Arrival Date': item.arrival_date || item.flight_date,
-        'Declared Value (USD)': item.declared_value_usd || parseFloat(item.total_charges || 0)
+      // Fetch both historical data and analytics from backend with same date range
+      const [historyResponse, analyticsResponse] = await Promise.all([
+        apiService.getHistoricalData(startDate, endDate),
+        apiService.getAnalytics(startDate, endDate)
+      ]);
+      
+      // Format data using NEW CNP+IODA backend structure - NO FRONTEND PROCESSING
+      const formattedData = historyResponse.data.map((item: any) => ({
+        id: item.id, // Database ID for deletion
+        
+        // Core identification (from backend ProcessedShipment model)
+        'PAWB': item.pawb || '',
+        'CARDIT': item.cardit || '',
+        'Tracking Number': item.tracking_number || '',
+        'Receptacle': item.receptacle_id || '',
+        
+        // Flight and routing (NEW CNP+IODA structure)
+        'Origin Station': item.host_origin_station || '',
+        'Destination Station': item.host_destination_station || '',
+        'Flight Carrier 1': item.flight_carrier_1 || '',
+        'Flight Number 1': item.flight_number_1 || '',
+        'Flight Date 1': item.flight_date_1 || '',
+        'Flight Carrier 2': item.flight_carrier_2 || '',
+        'Flight Number 2': item.flight_number_2 || '',
+        'Flight Date 2': item.flight_date_2 || '',
+        'Arrival Date': item.arrival_date || '',
+        'Arrival ULD': item.arrival_uld_number || '',
+        
+        // Package details (NEW structure)
+        'Bag Weight (kg)': item.bag_weight || '',
+        'Bag Number': item.bag_number || '',
+        'Declared Content': item.declared_content || '',
+        'HS Code': item.hs_code || '',
+        'Declared Value': item.declared_value || '',
+        'Currency': item.currency || '',
+        'Number of Packets': item.number_of_packets || '',
+        'Tariff Amount': item.tariff_amount || '',
+        
+        // CBD export fields (computed by backend)
+        'Carrier Code': item.carrier_code || '',
+        'Flight/Trip Number': item.flight_trip_number || '',
+        'Arrival Port Code': item.arrival_port_code || '',
+        'Arrival Date Formatted': item.arrival_date_formatted || '',
+        'Declared Value (USD)': item.declared_value_usd || ''
       }));
 
       setHistoricalData(formattedData);
+      setRawBackendData(historyResponse.data); // Store raw backend data for CBP/China Post sections
+      setAnalyticsData(analyticsResponse); // Set backend analytics data
 
       setProcessResult({
-        results: response.results,
-        total_records: response.total_records
+        results: historyResponse.results,
+        total_records: historyResponse.total_records
       });
       setNotification({
-        message: `Successfully retrieved ${response.total_records} records`,
+        message: `Successfully retrieved ${historyResponse.total_records} records`,
         type: 'success'
       });
     } catch (error) {
@@ -177,7 +153,7 @@ const HistoricalData: React.FC = () => {
     }
 
     try {
-      const blob = await apiService.generateChinaPostFile(historicalData);
+      const blob = await apiService.generateChinaPostFile();
       downloadBlob(blob, `china_post_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
         message: 'China Post file generated successfully',
@@ -220,93 +196,6 @@ const HistoricalData: React.FC = () => {
   const handleToggleEditMode = () => {
     setIsEditMode(!isEditMode);
     setSelectedRecords(new Set()); // Clear selections when toggling edit mode
-    setEditingRows(new Set()); // Clear editing state when toggling edit mode
-    setEditedData({}); // Clear edited data when toggling edit mode
-  };
-
-  const handleStartRowEdit = (recordId: number, record: any) => {
-    const newEditingRows = new Set(editingRows);
-    newEditingRows.add(recordId);
-    setEditingRows(newEditingRows);
-    
-    // Initialize edited data for this row
-    const editableFields = [
-      '*运单号 (AWB Number)',
-      '航班日期 (Flight Date)',
-      '*目的站（Destination）',
-      '*重量 (Weight)',
-      '*总运费 (Total Charges)'
-    ];
-    
-    const initialData: Record<string, any> = {};
-    editableFields.forEach(field => {
-      initialData[field] = record[field];
-    });
-    
-    setEditedData(prev => ({
-      ...prev,
-      [recordId]: initialData
-    }));
-  };
-
-  const handleCancelRowEdit = (recordId: number) => {
-    const newEditingRows = new Set(editingRows);
-    newEditingRows.delete(recordId);
-    setEditingRows(newEditingRows);
-    
-    // Remove edited data for this row
-    setEditedData(prev => {
-      const newData = { ...prev };
-      delete newData[recordId];
-      return newData;
-    });
-  };
-
-  const handleFieldChange = (recordId: number, field: string, value: any) => {
-    setEditedData(prev => ({
-      ...prev,
-      [recordId]: {
-        ...prev[recordId],
-        [field]: value
-      }
-    }));
-  };
-
-  const handleSaveRow = async (recordId: number) => {
-    if (!editedData[recordId]) return;
-
-    try {
-      setSavingRows(prev => new Set(prev).add(recordId));
-      
-      await apiService.updateRecord(recordId, editedData[recordId]);
-      
-      setNotification({
-        message: 'Record updated successfully',
-        type: 'success'
-      });
-
-      // Update the local data
-      setHistoricalData(prev => prev.map(record => 
-        record.id === recordId 
-          ? { ...record, ...editedData[recordId] }
-          : record
-      ));
-
-      // Exit edit mode for this row
-      handleCancelRowEdit(recordId);
-    } catch (error) {
-      console.error('Error updating record:', error);
-      setNotification({
-        message: `Error updating record: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        type: 'error'
-      });
-    } finally {
-      setSavingRows(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(recordId);
-        return newSet;
-      });
-    }
   };
 
   const handleRecordSelect = (recordId: number, isSelected: boolean) => {
@@ -493,6 +382,40 @@ const HistoricalData: React.FC = () => {
         <div className="mt-6">
           {activeTab === 'overview' && (
             <div className="space-y-6">
+              {/* Summary Statistics */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="card p-4">
+                  <div className="text-sm font-medium text-gray-600">Total Records</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {analyticsData?.analytics?.total_shipments?.toLocaleString() || historicalData.length.toLocaleString()}
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-sm font-medium text-gray-600">Total Weight</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {analyticsData?.analytics?.total_weight?.toLocaleString() || '0'} kg
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-sm font-medium text-gray-600">Declared Value</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    ${analyticsData?.analytics?.total_declared_value?.toLocaleString() || '0'}
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-sm font-medium text-gray-600">Carriers</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {analyticsData?.analytics?.unique_carriers || '0'}
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-sm font-medium text-gray-600">Total Tariff</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    ${analyticsData?.analytics?.total_tariff?.toLocaleString() || '0'}
+                  </div>
+                </div>
+              </div>
+              
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -508,35 +431,38 @@ const HistoricalData: React.FC = () => {
                         </th>
                       )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        AWB Number
+                        ID / PAWB
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Flight Date
+                        CARDIT / Tracking
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Destination
+                        Route & Station
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Weight (kg)
+                        Flight Details
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total Charges
+                        Arrival & ULD
                       </th>
-                      {isEditMode && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      )}
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Bag & Receptacle
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Content & Value
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Tariff & Packets
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        CBD Fields
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {currentRecords.map((record, index) => {
-                      const isRowEditing = editingRows.has(record.id);
-                      const isRowSaving = savingRows.has(record.id);
-                      const rowData = isRowEditing ? { ...record, ...editedData[record.id] } : record;
-                      
                       return (
-                        <tr key={record.id || index} className={`hover:bg-gray-50 ${selectedRecords.has(record.id) ? 'bg-blue-50' : ''} ${isRowEditing ? 'bg-yellow-50' : ''}`}>
+                        <tr key={record.id || index} className={`hover:bg-gray-50 ${selectedRecords.has(record.id) ? 'bg-blue-50' : ''}`}>
                           {isEditMode && (
                             <td className="px-6 py-4 whitespace-nowrap">
                               <input
@@ -544,90 +470,84 @@ const HistoricalData: React.FC = () => {
                                 checked={selectedRecords.has(record.id)}
                                 onChange={(e) => handleRecordSelect(record.id, e.target.checked)}
                                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                disabled={isRowEditing}
                               />
                             </td>
                           )}
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            <EditableCell
-                              value={rowData['*运单号 (AWB Number)']}
-                              field="*运单号 (AWB Number)"
-                              recordId={record.id}
-                              isEditing={isRowEditing}
-                              onChange={handleFieldChange}
-                            />
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">ID: {record.id}</div>
+                            <div className="text-sm text-gray-500">PAWB: {record.pawb || 'N/A'}</div>
+                            <div className="text-xs text-gray-400">Seq: {record.sequence_number || 'N/A'}</div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <EditableCell
-                              value={rowData['航班日期 (Flight Date)']}
-                              field="航班日期 (Flight Date)"
-                              recordId={record.id}
-                              isEditing={isRowEditing}
-                              onChange={handleFieldChange}
-                            />
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">CARDIT: {record.cardit || 'N/A'}</div>
+                            <div className="text-sm text-gray-500 font-mono">Tracking: {record.tracking_number || 'N/A'}</div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <EditableCell
-                              value={rowData['*目的站（Destination）']}
-                              field="*目的站（Destination）"
-                              recordId={record.id}
-                              isEditing={isRowEditing}
-                              onChange={handleFieldChange}
-                            />
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {record.host_origin_station || 'N/A'} → {record.host_destination_station || 'N/A'}
+                            </div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <EditableCell
-                              value={rowData['*重量 (Weight)']}
-                              field="*重量 (Weight)"
-                              recordId={record.id}
-                              isEditing={isRowEditing}
-                              onChange={handleFieldChange}
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <EditableCell
-                              value={rowData['*总运费 (Total Charges)']}
-                              field="*总运费 (Total Charges)"
-                              recordId={record.id}
-                              isEditing={isRowEditing}
-                              onChange={handleFieldChange}
-                            />
-                          </td>
-                          {isEditMode && (
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <div className="flex space-x-2">
-                                {isRowEditing ? (
-                                  <>
-                                    <button
-                                      onClick={() => handleSaveRow(record.id)}
-                                      disabled={isRowSaving}
-                                      className="inline-flex items-center px-2 py-1 border border-green-300 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                      {isRowSaving ? (
-                                        <Loader className="h-3 w-3 animate-spin" />
-                                      ) : (
-                                        <Save className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                    <button
-                                      onClick={() => handleCancelRowEdit(record.id)}
-                                      disabled={isRowSaving}
-                                      className="inline-flex items-center px-2 py-1 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                      <RotateCcw className="h-3 w-3" />
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    onClick={() => handleStartRowEdit(record.id, record)}
-                                    className="inline-flex items-center px-2 py-1 border border-blue-300 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100"
-                                  >
-                                    <Edit3 className="h-3 w-3" />
-                                  </button>
-                                )}
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {record.flight_carrier_1 || 'N/A'} {record.flight_number_1 || ''}
+                            </div>
+                            <div className="text-xs text-gray-500">{record.flight_date_1 || 'N/A'}</div>
+                            {record.flight_carrier_2 && (
+                              <div className="text-xs text-gray-400">
+                                Leg 2: {record.flight_carrier_2} {record.flight_number_2}
                               </div>
-                            </td>
-                          )}
+                            )}
+                            {record.flight_carrier_3 && (
+                              <div className="text-xs text-gray-400">
+                                Leg 3: {record.flight_carrier_3} {record.flight_number_3}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">Arrival: {record.arrival_date || 'N/A'}</div>
+                            <div className="text-xs text-gray-500">ULD: {record.arrival_uld_number || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">Bag: {record.bag_number || 'N/A'}</div>
+                            <div className="text-sm font-medium text-gray-900">{record.bag_weight || 'N/A'} kg</div>
+                            <div className="text-xs text-gray-500">Receptacle: {record.receptacle_id || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900" title={record.declared_content || 'N/A'}>
+                              {record.declared_content ? 
+                                (record.declared_content.length > 15 ? 
+                                  record.declared_content.substring(0, 15) + '...' : 
+                                  record.declared_content
+                                ) : 'N/A'
+                              }
+                            </div>
+                            <div className="text-sm font-medium text-green-600">
+                              {record.declared_value || 'N/A'} {record.currency || ''}
+                            </div>
+                            <div className="text-xs text-gray-500">HS: {record.hs_code || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-green-600">
+                              Tariff: ${record.tariff_amount || 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Packets: {record.number_of_packets || 'N/A'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-xs text-gray-900">
+                              Carrier: {record.carrier_code || 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Flight: {record.flight_trip_number || 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Port: {record.arrival_port_code || 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              USD: ${record.declared_value_usd || 'N/A'}
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -683,7 +603,8 @@ const HistoricalData: React.FC = () => {
           )}
           {activeTab === 'analytics' && (
             <Dashboard 
-              data={historicalData} 
+              data={historicalData}
+              analyticsData={analyticsData} 
               processResult={processResult || {
                 results: {
                   china_post: { available: true, records_processed: historicalData.length },
@@ -695,14 +616,14 @@ const HistoricalData: React.FC = () => {
           )}
           {activeTab === 'cbp' && (
             <CBPSection
-              data={historicalData}
+              data={rawBackendData}
               isAvailable={true}
               onDownload={handleGenerateCBP}
             />
           )}
           {activeTab === 'china-post' && (
             <ChinaPostSection
-              data={historicalData}
+              data={rawBackendData}
               isAvailable={true}
               onDownload={handleGenerateChinaPost}
             />

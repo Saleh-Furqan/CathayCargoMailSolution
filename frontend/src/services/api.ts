@@ -1,97 +1,28 @@
 const API_BASE_URL = 'http://localhost:5001';
 
-export interface HistoricalDataResponse {
-  data: any[];
-  total_records: number;
-  results: {
-    china_post: {
-      available: boolean;
-      records_processed?: number;
-    };
-    cbp: {
-      available: boolean;
-      records_processed?: number;
-    };
-  };
-}
-
 export interface ProcessDataResponse {
   success: boolean;
   message: string;
-  results: {
-    china_post?: {
-      available: boolean;
-      records_processed?: number;
-      missing_columns?: string[];
-    };
-    cbp?: {
-      available: boolean;
-      records_processed?: number;
-      missing_columns?: string[];
-    };
-    internal_use?: {
-      available: boolean;
-      records_processed?: number;
-    };
-  };
-  total_records: number;
+  results?: any;
+  total_records?: number;
   new_entries?: number;
   skipped_duplicates?: number;
 }
 
 export interface ColumnsResponse {
-  china_post_columns: string[];
-  cbp_columns: string[];
-  total_unique_columns: string[];
-}
-
-export interface Route {
-  origin: string;
-  destination: string;
-  route_id: string;
-}
-
-export interface RoutesResponse {
-  routes: Route[];
-  total_routes: number;
+  columns: string[];
 }
 
 class ApiService {
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      ...options,
-    });
-
+  async healthCheck() {
+    const response = await fetch(`${API_BASE_URL}/health`);
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      throw new Error('Backend health check failed');
     }
-
     return response.json();
   }
 
-  async healthCheck(): Promise<{ status: string; timestamp: string }> {
-    return this.request('/health');
-  }
-
-  async getColumns(): Promise<ColumnsResponse> {
-    return this.request('/columns');
-  }
-
-  async processData(data: any[]): Promise<ProcessDataResponse> {
-    return this.request('/process-data', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  // Upload CNP file for processing
-  async uploadCNPFile(file: File): Promise<ProcessDataResponse> {
+  async uploadCNPFile(file: File) {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -101,139 +32,300 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Upload failed');
     }
 
     return response.json();
   }
 
-  async generateChinaPostFile(data?: any[], file?: File): Promise<Blob> {
-    let response: Response;
-
-    if (file) {
-      // Use file upload method
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      response = await fetch(`${API_BASE_URL}/generate-china-post`, {
-        method: 'POST',
-        body: formData,
-      });
-    } else if (data) {
-      // Use JSON data method (existing functionality)
-      response = await fetch(`${API_BASE_URL}/generate-china-post`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-    } else {
-      throw new Error('Either data or file must be provided');
-    }
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.blob();
-  }
-
-  async generateCBPFile(data?: any[], file?: File): Promise<Blob> {
-    let response: Response;
-
-    if (file) {
-      // Use file upload method
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      response = await fetch(`${API_BASE_URL}/generate-cbp`, {
-        method: 'POST',
-        body: formData,
-      });
-    } else if (data) {
-      // Use JSON data method (existing functionality)
-      response = await fetch(`${API_BASE_URL}/generate-cbp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-    } else {
-      throw new Error('Either data or file must be provided');
-    }
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.blob();
-  }
-
-  async getHistoricalData(startDate: string, endDate: string): Promise<HistoricalDataResponse> {
-    return this.request('/historical-data', {
+  async getHistoricalData(startDate: string, endDate: string) {
+    const response = await fetch(`${API_BASE_URL}/historical-data`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ startDate, endDate }),
     });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch historical data');
+    }
+
+    return response.json();
   }
 
-  async deleteRecords(ids: number[]): Promise<{ message: string; deleted_count: number }> {
-    return this.request('/delete-records', {
+
+  async generateChinaPostFile(): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/generate-chinapost`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to generate CHINAPOST file');
+    }
+
+    return response.blob();
+  }
+
+  async generateCBDFile(): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/generate-cbd`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to generate CBD file');
+    }
+
+    return response.blob();
+  }
+
+  async deleteRecords(ids: number[]) {
+    const response = await fetch(`${API_BASE_URL}/delete-records`, {
       method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ ids }),
     });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete records');
+    }
+
+    return response.json();
   }
 
-  async updateRecord(id: number, updates: Record<string, any>): Promise<{ message: string; updated_fields: string[]; record: any }> {
-    return this.request('/update-record', {
-      method: 'PUT',
-      body: JSON.stringify({ id, updates }),
+  async clearDatabase() {
+    const response = await fetch(`${API_BASE_URL}/clear-database`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
+
+    if (!response.ok) {
+      throw new Error('Failed to clear database');
+    }
+
+    return response.json();
   }
 
-  async getRoutes(): Promise<RoutesResponse> {
-    return this.request('/routes');
+  async getAnalytics(startDate?: string, endDate?: string) {
+    const url = `${API_BASE_URL}/get-analytics-data`;
+    const options: RequestInit = {
+      method: startDate && endDate ? 'POST' : 'GET',
+    };
+    
+    if (startDate && endDate) {
+      options.headers = {
+        'Content-Type': 'application/json',
+      };
+      options.body = JSON.stringify({ startDate, endDate });
+    }
+    
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get analytics data');
+    }
+    
+    return response.json();
+  }
+
+  async getColumns(): Promise<ColumnsResponse> {
+    // Legacy method - return empty columns
+    return { columns: [] };
+  }
+
+  async updateRecord(_id: number, _data: any) {
+    // Legacy method - not implemented in new backend
+    throw new Error('updateRecord is not implemented in new backend');
+  }
+
+  // ==================== TARIFF MANAGEMENT METHODS ====================
+  
+  async getTariffSystemDefaults() {
+    const response = await fetch(`${API_BASE_URL}/tariff-system-defaults`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get tariff system defaults');
+    }
+    
+    return response.json();
+  }
+
+  async getTariffRoutes() {
+    const response = await fetch(`${API_BASE_URL}/tariff-routes`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get tariff routes');
+    }
+    
+    return response.json();
+  }
+
+  async getTariffRates() {
+    const response = await fetch(`${API_BASE_URL}/tariff-rates`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get tariff rates');
+    }
+    
+    return response.json();
+  }
+
+  async createTariffRate(tariffRateData: {
+    origin_country: string;
+    destination_country: string;
+    tariff_rate: number;
+    minimum_tariff?: number;
+    maximum_tariff?: number;
+    currency?: string;
+    notes?: string;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/tariff-rates`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(tariffRateData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to create tariff rate');
+    }
+
+    return response.json();
+  }
+
+  async updateTariffRate(rateId: number, tariffRateData: {
+    tariff_rate?: number;
+    minimum_tariff?: number;
+    maximum_tariff?: number;
+    currency?: string;
+    notes?: string;
+    is_active?: boolean;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/tariff-rates/${rateId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(tariffRateData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update tariff rate');
+    }
+
+    return response.json();
+  }
+
+  async deleteTariffRate(rateId: number) {
+    const response = await fetch(`${API_BASE_URL}/tariff-rates/${rateId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete tariff rate');
+    }
+
+    return response.json();
+  }
+
+  async calculateTariff(origin: string, destination: string, declaredValue: number) {
+    const response = await fetch(`${API_BASE_URL}/calculate-tariff`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        origin_country: origin,
+        destination_country: destination,
+        declared_value: declaredValue,
+      }),
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to calculate tariff');
+    }
+
+    return data;
+  }
+
+  async getCBPAnalytics(startDate?: string, endDate?: string) {
+    const url = `${API_BASE_URL}/cbp-analytics`;
+    const options: RequestInit = {
+      method: startDate && endDate ? 'POST' : 'GET',
+    };
+    
+    if (startDate && endDate) {
+      options.headers = {
+        'Content-Type': 'application/json',
+      };
+      options.body = JSON.stringify({ startDate, endDate });
+    }
+    
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get CBP analytics data');
+    }
+    
+    return response.json();
+  }
+
+  async getChinaPostAnalytics(startDate?: string, endDate?: string) {
+    const url = `${API_BASE_URL}/chinapost-analytics`;
+    const options: RequestInit = {
+      method: startDate && endDate ? 'POST' : 'GET',
+    };
+    
+    if (startDate && endDate) {
+      options.headers = {
+        'Content-Type': 'application/json',
+      };
+      options.body = JSON.stringify({ startDate, endDate });
+    }
+    
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get China Post analytics data');
+    }
+    
+    return response.json();
+  }
+
+  // Legacy methods - kept for backward compatibility but no longer send data
+  async processData(_data: any[]): Promise<ProcessDataResponse> {
+    // This method is now deprecated - all processing happens in backend
+    console.warn('processData is deprecated - all processing now happens in backend via uploadCNPFile');
+    return { success: false, message: 'Use uploadCNPFile instead' };
+  }
+
+  async generateCBPFile(_data?: any[]): Promise<Blob> {
+    // Ignore frontend data - backend generates directly from database
+    return this.generateCBDFile();
   }
 }
 
 export const apiService = new ApiService();
 
-// Utility function to read Excel files
-export const readExcelFile = (file: File): Promise<any[]> => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // Dynamically import XLSX
-      const XLSX = await import('xlsx');
-      
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
-          console.log('Excel file read successfully:', jsonData.length, 'rows');
-          resolve(jsonData);
-        } catch (error) {
-          console.error('Error parsing Excel file:', error);
-          reject(error);
-        }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsArrayBuffer(file);
-    } catch (error) {
-      console.error('Error importing XLSX library:', error);
-      reject(error);
-    }
-  });
-};
-
-// Utility function to download blob as file
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
