@@ -214,14 +214,14 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
       </div>
 
       {/* Processing Status */}
-      {processResult && (
+      {processResult && processResult.results && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <div className="card p-6">
             <div className="flex items-center space-x-4 mb-4">
               <div className={`p-3 rounded-lg flex-shrink-0 ${
-                processResult.results.china_post.available ? 'bg-green-500' : 'bg-red-500'
+                (processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 'bg-green-500' : 'bg-red-500'
               }`}>
-                {processResult.results.china_post.available ? 
+                {(processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 
                   <CheckCircle className="h-5 w-5 text-white" /> :
                   <AlertTriangle className="h-5 w-5 text-white" />
                 }
@@ -231,14 +231,14 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
             <div className="space-y-3">
               <p className="text-sm text-gray-600 leading-relaxed">
                 Status: <span className={`font-semibold ${
-                  processResult.results.china_post.available ? 'text-green-600' : 'text-red-600'
+                  (processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {processResult.results.china_post.available ? 'Ready' : 'Not Available'}
+                  {(processResult.results.china_post?.available || processResult.results.internal_use?.available) ? 'Ready' : 'Not Available'}
                 </span>
               </p>
-              {processResult.results.china_post.records_processed && (
+              {(processResult.results.china_post?.records_processed || processResult.results.internal_use?.records_processed) && (
                 <p className="text-sm text-gray-600 leading-relaxed">
-                  Records: <span className="font-semibold text-gray-900">{processResult.results.china_post.records_processed}</span>
+                  Records: <span className="font-semibold text-gray-900">{processResult.results.china_post?.records_processed || processResult.results.internal_use?.records_processed}</span>
                 </p>
               )}
             </div>
@@ -247,9 +247,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
           <div className="card p-6">
             <div className="flex items-center space-x-4 mb-4">
               <div className={`p-3 rounded-lg flex-shrink-0 ${
-                processResult.results.cbp.available ? 'bg-green-500' : 'bg-red-500'
+                processResult.results.cbp?.available ? 'bg-green-500' : 'bg-red-500'
               }`}>
-                {processResult.results.cbp.available ? 
+                {processResult.results.cbp?.available ? 
                   <CheckCircle className="h-5 w-5 text-white" /> :
                   <AlertTriangle className="h-5 w-5 text-white" />
                 }
@@ -259,12 +259,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
             <div className="space-y-3">
               <p className="text-sm text-gray-600 leading-relaxed">
                 Status: <span className={`font-semibold ${
-                  processResult.results.cbp.available ? 'text-green-600' : 'text-red-600'
+                  processResult.results.cbp?.available ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {processResult.results.cbp.available ? 'Ready' : 'Not Available'}
+                  {processResult.results.cbp?.available ? 'Ready' : 'Not Available'}
                 </span>
               </p>
-              {processResult.results.cbp.records_processed && (
+              {processResult.results.cbp?.records_processed && (
                 <p className="text-sm text-gray-600 leading-relaxed">
                   Records: <span className="font-semibold text-gray-900">{processResult.results.cbp.records_processed}</span>
                 </p>

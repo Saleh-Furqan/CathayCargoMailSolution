@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from models import db, ShipmentEntry
 from config import Config
 from sqlalchemy import func, and_
+from data_processor import DataProcessor
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -64,6 +65,9 @@ def get_historical_data():
 # Template file paths
 CP_TEMPLATE = "templates/China Post data source file template.xlsx"
 CBP_TEMPLATE = "templates/CBP transported package worksheet file template.xlsx"
+
+# IODA data file path
+IODA_DATA_FILE = "../../data processing/Sample_Data_from_IODA_v2 (China Post).xlsx"
 
 # Column mappings from original code
 CP_COLUMNS = [
@@ -133,54 +137,81 @@ def filter_cp_data(df):
     )
     return df[mask].reset_index(drop=True)
 
-def save_to_database(row):
-    """Save a single row of data to the database"""
-    # Check if entry already exists
-    awb_number = str(row.get('*运单号 (AWB Number)', ''))
-    destination = str(row.get('*目的站（Destination）', ''))
-    departure_station = str(row.get('*始发站（Departure station）', ''))
-    flight_number = str(row.get('航班号 (Flight Number)', row.get('Flight/ Trip Number', '')))
-    flight_date = str(row.get('航班日期 (Flight Date)', row.get('Arrival Date', '')))
+def save_workflow_output_to_database(internal_df):
+    """Save workflow output (Internal Use format) to database"""
+    new_entries = 0
+    skipped_entries = 0
     
-    existing_entry = ShipmentEntry.query.filter_by(
-        awb_number=awb_number,
-        destination=destination,
-        departure_station=departure_station,
-        flight_number=flight_number,
-        flight_date=flight_date
-    ).first()
+    for _, row in internal_df.iterrows():
+        # Check if entry already exists
+        tracking_number = str(row.get('Tracking Number', ''))
+        receptacle_id = str(row.get('Receptacle', ''))
+        flight_number = str(row.get('Flight Number 1', ''))
+        flight_date = str(row.get('Flight Date 1', ''))
+        
+        existing_entry = ShipmentEntry.query.filter_by(
+            tracking_number=tracking_number,
+            receptacle_id=receptacle_id,
+            flight_number=flight_number,
+            flight_date=flight_date
+        ).first()
+        
+        if existing_entry:
+            skipped_entries += 1
+            continue  # Skip duplicate entry
+            
+        # Create new shipment entry with complete workflow data
+        entry = ShipmentEntry(
+            # Core identification
+            pawb=str(row.get('PAWB', '')),
+            cardit=str(row.get('CARDIT', '')),
+            tracking_number=tracking_number,
+            receptacle_id=receptacle_id,
+            
+            # Flight information
+            host_origin_station=str(row.get('Host Origin Station', '')),
+            host_destination_station=str(row.get('Host Destination Station', '')),
+            flight_carrier_1=str(row.get('Flight Carrier 1', '')),
+            flight_number_1=str(row.get('Flight Number 1', '')),
+            flight_date_1=str(row.get('Flight Date 1', '')),
+            flight_carrier_2=str(row.get('Flight Carrier 2', '')),
+            flight_number_2=str(row.get('Flight Number 2', '')),
+            flight_date_2=str(row.get('Flight Date 2', '')),
+            arrival_date=str(row.get('Arrival Date', '')),
+            uld_number=str(row.get('ULD Number', '')),
+            
+            # Package details
+            bag_weight=str(row.get('Bag Weight', '')),
+            bag_number=str(row.get('Bag Number', '')),
+            packets_in_receptacle=str(row.get('Number of packets inside Receptacle', '')),
+            
+            # Content and customs
+            declared_content=str(row.get('Declared content', '')),
+            hs_code=str(row.get('HS Code', '')),
+            declared_value=str(row.get('Declared Value', '')),
+            currency=str(row.get('Currency', '')),
+            tariff_amount=str(row.get('Tariff amount', '')),
+            
+            # CBP fields
+            carrier_code=str(row.get('Flight Carrier 1', '')),  # Use carrier for CBP
+            arrival_port_code='4701',  # Default port code
+            declared_value_usd=str(row.get('Declared Value', '')),  # Assuming USD
+            
+            # Legacy fields for backward compatibility
+            awb_number=str(row.get('PAWB', '')),
+            departure_station=str(row.get('Host Origin Station', '')),
+            destination=str(row.get('Host Destination Station', '')),
+            weight=str(row.get('Bag Weight', '')),
+            airline=str(row.get('Flight Carrier 1', '')),
+            flight_number=str(row.get('Flight Number 1', '')),
+            flight_date=str(row.get('Flight Date 1', '')),
+            total_charges=str(row.get('Tariff amount', ''))
+        )
+        
+        db.session.add(entry)
+        new_entries += 1
     
-    if existing_entry:
-        return False  # Skip duplicate entry
-        
-    # Create shipment entry with all available data
-    entry = ShipmentEntry(
-        # China Post fields
-        awb_number=str(row.get('*运单号 (AWB Number)', '')),
-        departure_station=str(row.get('*始发站（Departure station）', '')),
-        destination=str(row.get('*目的站（Destination）', '')),
-        pieces=str(row.get('*件数(Pieces)', '')),
-        weight=str(row.get('*重量 (Weight)', '')),
-        airline=str(row.get('航司(Airline)', '')),
-        flight_number=str(row.get('航班号 (Flight Number)', row.get('Flight/ Trip Number', ''))),
-        flight_date=str(row.get('航班日期 (Flight Date)', row.get('Arrival Date', ''))),
-        total_mail_items=str(row.get('一个航班的邮件item总数 (Total mail items per flight)', '')),
-        total_mail_weight=str(row.get('一个航班的邮件总重量 (Total mail weight per flight)', '')),
-        rate_type=str(row.get('*运价类型 (Rate Type)', '')),
-        rate=str(row.get('*费率 (Rate)', '')),
-        air_freight=str(row.get('*航空运费 (Air Freight)', '')),
-        agent_charges=str(row.get('代理人的其他费用 (Agent\'s Other Charges)', '')),
-        carrier_charges=str(row.get('承运人的其他费用 (Carrier\'s Other Charges)', '')),
-        total_charges=str(row.get('*总运费 (Total Charges)', '')),
-        
-        # CBP fields (either from CBP columns or mapped from China Post columns)
-        carrier_code=str(row.get('Carrier Code', row.get('航司(Airline)', ''))),
-        arrival_port_code=str(row.get('Arrival Port Code', row.get('*目的站（Destination）', ''))),
-        arrival_date=str(row.get('Arrival Date', row.get('航班日期 (Flight Date)', ''))),
-        declared_value_usd=str(row.get('Declared Value (USD)', '')),
-        tracking_number=str(row.get('Tracking Number', row.get('*运单号 (AWB Number)', '')))
-    )
-    db.session.add(entry)
+    return new_entries, skipped_entries
 
 def create_china_post_output(df):
     """Create China Post output Excel file and save to database"""
@@ -320,7 +351,83 @@ def create_cbp_output(df):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+    # Also include database record count for debugging
+    record_count = ShipmentEntry.query.count()
+    return jsonify({
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "database_records": record_count
+    })
+
+@app.route('/upload-cnp-file', methods=['POST'])
+def upload_cnp_file():
+    """Upload and process raw CNP Excel file"""
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Check file extension
+        if not file.filename.lower().endswith(('.xlsx', '.xls')):
+            return jsonify({"error": "Invalid file format. Please upload an Excel file."}), 400
+        
+        # Save uploaded file temporarily
+        temp_path = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+        file.save(temp_path)
+        
+        try:
+            # Read the raw CNP data from the first sheet (header=None for custom parsing)
+            cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
+            
+            # Initialize data processor
+            processor = DataProcessor(IODA_DATA_FILE)
+            
+            # Process the data to get both internal use and CBP formats
+            internal_df, cbp_df = processor.process_cnp_data(cnp_df)
+            
+            # Get the merged IODA data for database storage
+            processed_ioda_data = processor.get_processed_data()
+            
+            # Save workflow output to database
+            if internal_df is not None and not internal_df.empty:
+                new_entries, skipped_entries = save_workflow_output_to_database(internal_df)
+                db.session.commit()
+                print(f"Saved to database: {new_entries} new entries, {skipped_entries} duplicates skipped")
+            else:
+                new_entries, skipped_entries = 0, 0
+            
+            return jsonify({
+                "success": True,
+                "message": "CNP file processed successfully",
+                "results": {
+                    "internal_use": {
+                        "available": True,
+                        "records_processed": len(internal_df) if not internal_df.empty else 0
+                    },
+                    "cbp": {
+                        "available": True,
+                        "records_processed": len(cbp_df) if not cbp_df.empty else 0
+                    }
+                },
+                "total_records": len(internal_df) if internal_df is not None else 0,
+                "new_entries": new_entries,
+                "skipped_duplicates": skipped_entries
+            })
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
+    except Exception as e:
+        # Clean up temporary file in case of error
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/process-data', methods=['POST'])
 def process_data():
@@ -373,15 +480,10 @@ def process_data():
                 "missing_columns": missing_cbp_cols
             }
         
-        #update database
+        # This endpoint is for legacy JSON data processing
+        # For CNP file uploads, data is saved in the upload-cnp-file endpoint
         new_entries = 0
         skipped_entries = 0
-        for _, row in df.iterrows():
-            if save_to_database(row):
-                new_entries += 1
-            else:
-                skipped_entries += 1
-        db.session.commit()
 
         return jsonify({
             "success": True,
@@ -397,29 +499,59 @@ def process_data():
 
 @app.route('/generate-china-post', methods=['POST'])
 def generate_china_post():
-    """Generate China Post output file"""
+    """Generate China Post (Internal Use) output file"""
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-        
-        df = pd.DataFrame(data)
-        
-        # Check for required columns
-        missing_cols = [col for col in CP_COLUMNS if col not in df.columns]
-        if missing_cols:
-            return jsonify({
-                "error": "Missing required columns for China Post output",
-                "missing_columns": missing_cols
-            }), 400
-        
-        # Generate file
-        output = create_china_post_output(df)
+        # Check if we're getting processed data or need to process a file
+        if 'file' in request.files:
+            # Process uploaded file
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({"error": "No file selected"}), 400
+            
+            # Save and process file
+            temp_path = f"temp_cp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+            file.save(temp_path)
+            
+            try:
+                cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
+                processor = DataProcessor(IODA_DATA_FILE)
+                internal_df, cbp_df = processor.process_cnp_data(cnp_df)
+                
+                if internal_df is None or internal_df.empty:
+                    return jsonify({"error": "No Internal Use data processed"}), 400
+                
+                # Create Excel output with Internal Use format
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    internal_df.to_excel(writer, sheet_name='Internal Use Output', index=False)
+                output.seek(0)
+                
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+        else:
+            # Use existing JSON data processing for backward compatibility
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            df = pd.DataFrame(data)
+            
+            # Check for required columns (using old format for compatibility)
+            missing_cols = [col for col in CP_COLUMNS if col not in df.columns]
+            if missing_cols:
+                return jsonify({
+                    "error": "Missing required columns for China Post output",
+                    "missing_columns": missing_cols
+                }), 400
+            
+            # Generate file using old method
+            output = create_china_post_output(df)
         
         return send_file(
             output,
             as_attachment=True,
-            download_name=f"china_post_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            download_name=f"internal_use_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         
@@ -430,22 +562,52 @@ def generate_china_post():
 def generate_cbp():
     """Generate CBP output file"""
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-        
-        df = pd.DataFrame(data)
-        
-        # Check for required columns
-        missing_cols = [col for col in CBP_COLUMNS if col not in df.columns]
-        if missing_cols:
-            return jsonify({
-                "error": "Missing required columns for CBP output",
-                "missing_columns": missing_cols
-            }), 400
-        
-        # Generate file
-        output = create_cbp_output(df)
+        # Check if we're getting processed data or need to process a file
+        if 'file' in request.files:
+            # Process uploaded file
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({"error": "No file selected"}), 400
+            
+            # Save and process file
+            temp_path = f"temp_cbp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+            file.save(temp_path)
+            
+            try:
+                cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
+                processor = DataProcessor(IODA_DATA_FILE)
+                internal_df, cbp_df = processor.process_cnp_data(cnp_df)
+                
+                if cbp_df is None or cbp_df.empty:
+                    return jsonify({"error": "No CBP data processed"}), 400
+                
+                # Create Excel output with CBP format
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    cbp_df.to_excel(writer, sheet_name='CBP Output', index=False)
+                output.seek(0)
+                
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+        else:
+            # Use existing JSON data processing for backward compatibility
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            df = pd.DataFrame(data)
+            
+            # Check for required columns (using old format for compatibility)
+            missing_cols = [col for col in CBP_COLUMNS if col not in df.columns]
+            if missing_cols:
+                return jsonify({
+                    "error": "Missing required columns for CBP output",
+                    "missing_columns": missing_cols
+                }), 400
+            
+            # Generate file using old method
+            output = create_cbp_output(df)
         
         return send_file(
             output,
@@ -559,6 +721,40 @@ def update_record():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+@app.route('/routes', methods=['GET'])
+def get_routes():
+    """Get all unique route combinations from the database"""
+    try:
+        # Query distinct departure_station and destination combinations
+        routes_query = db.session.query(
+            ShipmentEntry.departure_station,
+            ShipmentEntry.destination
+        ).filter(
+            and_(
+                ShipmentEntry.departure_station.isnot(None),
+                ShipmentEntry.destination.isnot(None),
+                ShipmentEntry.departure_station != '',
+                ShipmentEntry.destination != ''
+            )
+        ).distinct().all()
+        
+        # Convert to list of route objects
+        routes = []
+        for departure, destination in routes_query:
+            routes.append({
+                'origin': departure,
+                'destination': destination,
+                'route_id': f"{departure}->{destination}"
+            })
+        
+        return jsonify({
+            'routes': routes,
+            'total_routes': len(routes)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)

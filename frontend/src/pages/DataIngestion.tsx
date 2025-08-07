@@ -15,7 +15,7 @@ import {
   Plane,
 } from 'lucide-react';
 import { DataFile } from '../types';
-import { apiService, readExcelFile, downloadBlob, ProcessDataResponse, ColumnsResponse } from '../services/api';
+import { apiService, downloadBlob, ProcessDataResponse, ColumnsResponse } from '../services/api';
 import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
@@ -27,7 +27,6 @@ const DataIngestion: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<DataFile | null>(null);
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [processResult, setProcessResult] = useState<ProcessDataResponse | null>(null);
-  const [columns, setColumns] = useState<ColumnsResponse | null>(null);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'upload' | 'dashboard' | 'cbp' | 'china-post'>('upload');
   const [notification, setNotification] = useState<{
@@ -39,8 +38,7 @@ const DataIngestion: React.FC = () => {
     const checkBackendConnection = async () => {
       try {
         await apiService.healthCheck();
-        const columnsData = await apiService.getColumns();
-        setColumns(columnsData);
+        await apiService.getColumns(); // Just call it but don't store
         setIsBackendConnected(true);
       } catch (error) {
         console.error('Backend connection failed:', error);
@@ -51,25 +49,86 @@ const DataIngestion: React.FC = () => {
     checkBackendConnection();
   }, []);
 
+  const fetchProcessedData = async () => {
+    try {
+      console.log('fetchProcessedData: Starting to fetch data...');
+      // Get recent data from the last 7 days to populate the dashboard
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      console.log('fetchProcessedData: Date range:', startDate, 'to', endDate);
+      
+      const response = await apiService.getHistoricalData(startDate, endDate);
+      console.log('fetchProcessedData: Response received:', response);
+      console.log('fetchProcessedData: Response data length:', response.data?.length || 0);
+      
+      // Format data for the dashboard
+      const formattedData = response.data.map(item => ({
+        id: item.id,
+        '*运单号 (AWB Number)': item.awb_number,
+        '*始发站（Departure station）': item.departure_station,
+        '*目的站（Destination）': item.destination,
+        '*件数(Pieces)': parseFloat(item.pieces || 0),
+        '*重量 (Weight)': parseFloat(item.weight || 0),
+        '航司(Airline)': item.airline,
+        '航班号 (Flight Number)': item.flight_number,
+        '航班日期 (Flight Date)': item.flight_date,
+        '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
+        '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
+        '*运价类型 (Rate Type)': item.rate_type,
+        '*费率 (Rate)': parseFloat(item.rate || 0),
+        '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
+        "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
+        "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
+        '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
+        'Carrier Code': item.carrier_code || item.airline,
+        'Flight/ Trip Number': item.flight_number,
+        'Tracking Number': item.tracking_number || item.awb_number,
+        'Arrival Port Code': item.arrival_port_code || item.destination,
+        'Arrival Date': item.arrival_date || item.flight_date,
+        'Declared Value (USD)': item.declared_value_usd || parseFloat(item.total_charges || 0)
+      }));
+
+      console.log('fetchProcessedData: Formatted data length:', formattedData.length);
+      setProcessedData(formattedData);
+      console.log('fetchProcessedData: Data set in state successfully');
+      
+    } catch (error) {
+      console.error('fetchProcessedData: Error fetching processed data:', error);
+      console.error('fetchProcessedData: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      setNotification({
+        message: `Error fetching processed data: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
+    }
+  };
+
   const processFileData = async (file: File, fileId: string) => {
     try {
       console.log('Starting to process file:', file.name, 'Size:', file.size, 'bytes');
+      console.log('File type:', file.type);
+      console.log('File last modified:', new Date(file.lastModified));
+      
       setProcessingFile(fileId);
       setUploadedFiles(prev => prev.map(f => 
         f.id === fileId ? { ...f, status: 'processing' as const } : f
       ));
 
-      // Read Excel file
-      console.log('Reading Excel file...');
-      const data = await readExcelFile(file);
-      console.log('Excel data loaded:', data.length, 'rows');
-      setProcessedData(data);
-
-      // Process data with backend
-      console.log('Sending data to backend...');
-      const result = await apiService.processData(data);
+      // Check if this is a CNP raw data file and process accordingly
+      console.log('Processing CNP raw data file...');
+      console.log('Calling apiService.uploadCNPFile...');
+      
+      const result = await apiService.uploadCNPFile(file);
       console.log('Backend processing result:', result);
+      console.log('Result type:', typeof result);
+      console.log('Result keys:', Object.keys(result || {}));
+      
       setProcessResult(result);
+      
+      // Fetch the processed data from the backend after successful processing
+      console.log('Fetching processed data...');
+      await fetchProcessedData();
+      console.log('Processed data fetched successfully');
 
       // Update file status
       setUploadedFiles(prev => prev.map(f => 
@@ -134,7 +193,7 @@ const DataIngestion: React.FC = () => {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     acceptedFiles.forEach((file) => {
       const newFile: DataFile = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: Math.random().toString(36).substring(2, 11),
         filename: file.name,
         file_type: 'template_data',
         upload_date: new Date().toISOString(),
@@ -214,41 +273,161 @@ const DataIngestion: React.FC = () => {
   };
 
   const handleGenerateChinaPost = async () => {
-    if (!processedData.length) {
-      alert('Please upload and process data first');
+    if (!uploadedFiles.length || !processResult) {
+      setNotification({
+        message: 'Please upload and process data first',
+        type: 'warning'
+      });
       return;
     }
 
     try {
-      const blob = await apiService.generateChinaPostFile(processedData);
-      downloadBlob(blob, `china_post_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      // Check if we have processed files
+      if (uploadedFiles.length === 0) {
+        setNotification({
+          message: 'No files available for processing',
+          type: 'warning'
+        });
+        return;
+      }
+      
+      // Create a temporary file input to get the file again (or use stored file data)
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.xlsx,.xls';
+      
+      // For the new workflow, we need to process the file again to generate the output
+      // This could be optimized by storing the file data or processed results
+      setNotification({
+        message: 'Generating Internal Use file... This may take a moment.',
+        type: 'info'
+      });
+
+      // Note: In a production system, you would store the file or processed data
+      // For now, ask user to re-upload the file for generation
+      fileInput.onchange = async (e) => {
+        const files = (e.target as HTMLInputElement).files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          try {
+            const blob = await apiService.generateChinaPostFile(undefined, file);
+            downloadBlob(blob, `internal_use_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+            setNotification({
+              message: 'Internal Use file generated successfully',
+              type: 'success'
+            });
+          } catch (error) {
+            console.error('Error generating Internal Use file:', error);
+            setNotification({
+              message: `Error generating Internal Use file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              type: 'error'
+            });
+          }
+        }
+      };
+      
+      fileInput.click();
+      
     } catch (error) {
       console.error('Error generating China Post file:', error);
-      alert('Error generating China Post file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setNotification({
+        message: `Error generating China Post file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
     }
   };
 
   const handleGenerateCBP = async () => {
-    if (!processedData.length) {
-      alert('Please upload and process data first');
+    if (!uploadedFiles.length || !processResult) {
+      setNotification({
+        message: 'Please upload and process data first',
+        type: 'warning'
+      });
       return;
     }
 
     try {
-      const blob = await apiService.generateCBPFile(processedData);
-      downloadBlob(blob, `cbp_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      // Create a temporary file input to get the file again
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.xlsx,.xls';
+      
+      setNotification({
+        message: 'Generating CBP file... This may take a moment.',
+        type: 'info'
+      });
+
+      fileInput.onchange = async (e) => {
+        const files = (e.target as HTMLInputElement).files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          try {
+            const blob = await apiService.generateCBPFile(undefined, file);
+            downloadBlob(blob, `cbp_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+            setNotification({
+              message: 'CBP file generated successfully',
+              type: 'success'
+            });
+          } catch (error) {
+            console.error('Error generating CBP file:', error);
+            setNotification({
+              message: `Error generating CBP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              type: 'error'
+            });
+          }
+        }
+      };
+      
+      fileInput.click();
+      
     } catch (error) {
       console.error('Error generating CBP file:', error);
-      alert('Error generating CBP file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setNotification({
+        message: `Error generating CBP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error'
+      });
     }
   };
 
   const tabs = [
     { id: 'upload', name: 'Data Upload', icon: Upload },
-    { id: 'dashboard', name: 'Analytics', icon: BarChart3, disabled: !processedData.length },
-    { id: 'cbp', name: 'CBP Section', icon: Building, disabled: !processResult?.results.cbp.available },
-    { id: 'china-post', name: 'China Post', icon: Plane, disabled: !processResult?.results.china_post.available },
+    { id: 'dashboard', name: 'Analytics', icon: BarChart3, disabled: !processResult },
+    { id: 'cbp', name: 'CBP Section', icon: Building, disabled: !processResult?.results?.cbp?.available && !processResult?.results?.internal_use?.available },
+    { id: 'china-post', name: 'China Post', icon: Plane, disabled: !processResult?.results?.china_post?.available && !processResult?.results?.internal_use?.available },
   ];
+
+  // Add error boundary handling
+  const [hasError, setHasError] = React.useState(false);
+  
+  React.useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      console.error('Global error caught:', error);
+      setHasError(true);
+    };
+    
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  if (hasError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
+          <p className="text-gray-600 mb-4">The application encountered an error. Please check the console for details.</p>
+          <button 
+            onClick={() => {
+              setHasError(false);
+              window.location.reload();
+            }}
+            className="btn-primary"
+          >
+            Reload Application
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -330,7 +509,9 @@ const DataIngestion: React.FC = () => {
                   : 'Drag & drop files here, or click to select'}
               </p>
               <p className="text-sm text-gray-500">
-                Supported formats: Excel (.xlsx, .xls), CSV (.csv)
+                Upload CNP raw data file (Excel format with "Raw data provided by CNP" sheet only)
+                <br />
+                <span className="text-xs text-blue-600">Note: Upload the entire Excel file - the system will automatically process the first sheet</span>
               </p>
             </div>
 
@@ -346,38 +527,38 @@ const DataIngestion: React.FC = () => {
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className={`p-3 rounded-md ${
-                    processResult.results.china_post.available 
+                    (processResult.results.internal_use?.available || processResult.results.china_post?.available)
                       ? 'bg-green-100 border border-green-200' 
                       : 'bg-red-100 border border-red-200'
                   }`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">China Post Output</span>
-                      {processResult.results.china_post.available ? (
+                      <span className="text-xs font-medium">Internal Use Output</span>
+                      {(processResult.results.internal_use?.available || processResult.results.china_post?.available) ? (
                         <CheckCircle className="h-4 w-4 text-green-600" />
                       ) : (
                         <AlertCircle className="h-4 w-4 text-red-600" />
                       )}
                     </div>
-                    {processResult.results.china_post.records_processed && (
+                    {(processResult.results.internal_use?.records_processed || processResult.results.china_post?.records_processed) && (
                       <p className="text-xs text-gray-600 mt-1">
-                        {processResult.results.china_post.records_processed} records ready
+                        {processResult.results.internal_use?.records_processed || processResult.results.china_post?.records_processed} records ready
                       </p>
                     )}
                   </div>
                   <div className={`p-3 rounded-md ${
-                    processResult.results.cbp.available 
+                    processResult.results.cbp?.available
                       ? 'bg-green-100 border border-green-200' 
                       : 'bg-red-100 border border-red-200'
                   }`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium">CBP Output</span>
-                      {processResult.results.cbp.available ? (
+                      {processResult.results.cbp?.available ? (
                         <CheckCircle className="h-4 w-4 text-green-600" />
                       ) : (
                         <AlertCircle className="h-4 w-4 text-red-600" />
                       )}
                     </div>
-                    {processResult.results.cbp.records_processed && (
+                    {processResult.results.cbp?.records_processed && (
                       <p className="text-xs text-gray-600 mt-1">
                         {processResult.results.cbp.records_processed} records ready
                       </p>
@@ -387,36 +568,16 @@ const DataIngestion: React.FC = () => {
               </div>
             )}
 
-            {/* Required Columns Information */}
-            {columns && (
-              <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Required Data Columns</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div>
-                    <h4 className="font-medium text-blue-900 mb-2">China Post Columns ({columns.china_post_columns.length})</h4>
-                    <div className="space-y-1 max-h-20 overflow-y-auto">
-                      {columns.china_post_columns.slice(0, 5).map((col, idx) => (
-                        <div key={idx} className="text-gray-600">• {col}</div>
-                      ))}
-                      {columns.china_post_columns.length > 5 && (
-                        <div className="text-gray-500">... and {columns.china_post_columns.length - 5} more</div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-green-900 mb-2">CBP Columns ({columns.cbp_columns.length})</h4>
-                    <div className="space-y-1 max-h-20 overflow-y-auto">
-                      {columns.cbp_columns.slice(0, 5).map((col, idx) => (
-                        <div key={idx} className="text-gray-600">• {col}</div>
-                      ))}
-                      {columns.cbp_columns.length > 5 && (
-                        <div className="text-gray-500">... and {columns.cbp_columns.length - 5} more</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+            {/* Information about new workflow */}
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h3 className="text-sm font-semibold text-blue-900 mb-3">New Data Processing Workflow</h3>
+              <div className="text-xs text-blue-800 space-y-2">
+                <p>• Upload the CNP raw data file (Excel format with "Raw data provided by CNP" sheet)</p>
+                <p>• The system will automatically merge it with IODA China Post data</p>
+                <p>• Generate both internal use and CBP output files in the correct format</p>
+                <p>• No need to manually format or merge data - everything is automated!</p>
               </div>
-            )}
+            </div>
           </div>
 
           {/* File List */}
@@ -633,7 +794,7 @@ const DataIngestion: React.FC = () => {
         <CBPSection 
           data={processedData} 
           onDownload={handleGenerateCBP}
-          isAvailable={processResult?.results.cbp.available || false}
+          isAvailable={processResult?.results?.cbp?.available || processResult?.results?.internal_use?.available || false}
         />
       )}
 
@@ -642,7 +803,7 @@ const DataIngestion: React.FC = () => {
         <ChinaPostSection 
           data={processedData} 
           onDownload={handleGenerateChinaPost}
-          isAvailable={processResult?.results.china_post.available || false}
+          isAvailable={processResult?.results?.china_post?.available || processResult?.results?.internal_use?.available || false}
         />
       )}
 

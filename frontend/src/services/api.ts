@@ -19,24 +19,41 @@ export interface ProcessDataResponse {
   success: boolean;
   message: string;
   results: {
-    china_post: {
+    china_post?: {
       available: boolean;
       records_processed?: number;
       missing_columns?: string[];
     };
-    cbp: {
+    cbp?: {
       available: boolean;
       records_processed?: number;
       missing_columns?: string[];
+    };
+    internal_use?: {
+      available: boolean;
+      records_processed?: number;
     };
   };
   total_records: number;
+  new_entries?: number;
+  skipped_duplicates?: number;
 }
 
 export interface ColumnsResponse {
   china_post_columns: string[];
   cbp_columns: string[];
   total_unique_columns: string[];
+}
+
+export interface Route {
+  origin: string;
+  destination: string;
+  route_id: string;
+}
+
+export interface RoutesResponse {
+  routes: Route[];
+  total_routes: number;
 }
 
 class ApiService {
@@ -73,14 +90,48 @@ class ApiService {
     });
   }
 
-  async generateChinaPostFile(data: any[]): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/generate-china-post`, {
+  // Upload CNP file for processing
+  async uploadCNPFile(file: File): Promise<ProcessDataResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/upload-cnp-file`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
+      body: formData,
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async generateChinaPostFile(data?: any[], file?: File): Promise<Blob> {
+    let response: Response;
+
+    if (file) {
+      // Use file upload method
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      response = await fetch(`${API_BASE_URL}/generate-china-post`, {
+        method: 'POST',
+        body: formData,
+      });
+    } else if (data) {
+      // Use JSON data method (existing functionality)
+      response = await fetch(`${API_BASE_URL}/generate-china-post`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+    } else {
+      throw new Error('Either data or file must be provided');
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -90,14 +141,30 @@ class ApiService {
     return response.blob();
   }
 
-  async generateCBPFile(data: any[]): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/generate-cbp`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    });
+  async generateCBPFile(data?: any[], file?: File): Promise<Blob> {
+    let response: Response;
+
+    if (file) {
+      // Use file upload method
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      response = await fetch(`${API_BASE_URL}/generate-cbp`, {
+        method: 'POST',
+        body: formData,
+      });
+    } else if (data) {
+      // Use JSON data method (existing functionality)
+      response = await fetch(`${API_BASE_URL}/generate-cbp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+    } else {
+      throw new Error('Either data or file must be provided');
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -126,6 +193,10 @@ class ApiService {
       method: 'PUT',
       body: JSON.stringify({ id, updates }),
     });
+  }
+
+  async getRoutes(): Promise<RoutesResponse> {
+    return this.request('/routes');
   }
 }
 
