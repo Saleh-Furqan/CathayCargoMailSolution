@@ -62,6 +62,8 @@ const EditableCell: React.FC<EditableCellProps> = ({ value, field, recordId, isE
 const HistoricalData: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [departure, setDeparture] = useState('');
+  const [destination, setDestination] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'cbp' | 'china-post'>('overview');
   const [historicalData, setHistoricalData] = useState<any[]>([]);
@@ -112,12 +114,18 @@ const HistoricalData: React.FC = () => {
     fetchHistoricalData();
   }, []);
 
+  const handleKeyPress = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      fetchHistoricalData();
+    }
+  };
+
   const fetchHistoricalData = async () => {
     if (!startDate || !endDate) return;
 
     try {
       setIsLoading(true);
-      const response = await apiService.getHistoricalData(startDate, endDate);
+      const response = await apiService.getHistoricalData(startDate, endDate, departure, destination);
       
       // Format data for consistency with ingestion format
       const formattedData = response.data.map(item => ({
@@ -233,6 +241,7 @@ const HistoricalData: React.FC = () => {
     const editableFields = [
       '*运单号 (AWB Number)',
       '航班日期 (Flight Date)',
+      '*始发站（Departure station）',
       '*目的站（Destination）',
       '*重量 (Weight)',
       '*总运费 (Total Charges)'
@@ -423,9 +432,10 @@ const HistoricalData: React.FC = () => {
         )}
       </div>
 
-      {/* Date Range Selector */}
+      {/* Search Filters */}
       <div className="card p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Search Filters</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Start Date
@@ -449,6 +459,32 @@ const HistoricalData: React.FC = () => {
             />
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Departure Station
+            </label>
+            <input
+              type="text"
+              placeholder="e.g., HKG, PVG..."
+              value={departure}
+              onChange={(e) => setDeparture(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="input-field w-full"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Destination
+            </label>
+            <input
+              type="text"
+              placeholder="e.g., LAX, JFK..."
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="input-field w-full"
+            />
+          </div>
+          <div>
             <button
               onClick={fetchHistoricalData}
               disabled={isLoading}
@@ -463,6 +499,23 @@ const HistoricalData: React.FC = () => {
             </button>
           </div>
         </div>
+        
+        {/* Clear Filters */}
+        {(departure || destination) && (
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={() => {
+                setDeparture('');
+                setDestination('');
+                // Auto-refetch data after clearing filters
+                setTimeout(fetchHistoricalData, 100);
+              }}
+              className="text-sm text-gray-500 hover:text-gray-700 underline"
+            >
+              Clear additional filters
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tab Navigation */}
@@ -514,6 +567,9 @@ const HistoricalData: React.FC = () => {
                         Flight Date
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Departure
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Destination
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -561,6 +617,15 @@ const HistoricalData: React.FC = () => {
                             <EditableCell
                               value={rowData['航班日期 (Flight Date)']}
                               field="航班日期 (Flight Date)"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <EditableCell
+                              value={rowData['*始发站（Departure station）']}
+                              field="*始发站（Departure station）"
                               recordId={record.id}
                               isEditing={isRowEditing}
                               onChange={handleFieldChange}
