@@ -27,6 +27,8 @@ def get_historical_data():
         data = request.json
         start_date = data.get('startDate')
         end_date = data.get('endDate')
+        departure = data.get('departure')
+        destination = data.get('destination')
 
         # Query the database
         query = ShipmentEntry.query
@@ -38,6 +40,14 @@ def get_historical_data():
                     func.date(ShipmentEntry.flight_date) <= end_date
                 )
             )
+        
+        # Add departure filter
+        if departure:
+            query = query.filter(ShipmentEntry.departure_station.ilike(f'%{departure}%'))
+        
+        # Add destination filter
+        if destination:
+            query = query.filter(ShipmentEntry.destination.ilike(f'%{destination}%'))
 
         # Execute query and convert to list of dictionaries
         entries = query.all()

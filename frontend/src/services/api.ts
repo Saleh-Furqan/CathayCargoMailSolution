@@ -107,10 +107,14 @@ class ApiService {
     return response.blob();
   }
 
-  async getHistoricalData(startDate: string, endDate: string): Promise<HistoricalDataResponse> {
+  async getHistoricalData(startDate: string, endDate: string, departure?: string, destination?: string): Promise<HistoricalDataResponse> {
+    const body: any = { startDate, endDate };
+    if (departure) body.departure = departure;
+    if (destination) body.destination = destination;
+    
     return this.request('/historical-data', {
       method: 'POST',
-      body: JSON.stringify({ startDate, endDate }),
+      body: JSON.stringify(body),
     });
   }
 
