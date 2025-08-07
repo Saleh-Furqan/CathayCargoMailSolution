@@ -233,6 +233,7 @@ const HistoricalData: React.FC = () => {
     const editableFields = [
       '*运单号 (AWB Number)',
       '航班日期 (Flight Date)',
+      '*始发站（Departure station）',
       '*目的站（Destination）',
       '*重量 (Weight)',
       '*总运费 (Total Charges)'
@@ -514,6 +515,9 @@ const HistoricalData: React.FC = () => {
                         Flight Date
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Departure
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Destination
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -561,6 +565,15 @@ const HistoricalData: React.FC = () => {
                             <EditableCell
                               value={rowData['航班日期 (Flight Date)']}
                               field="航班日期 (Flight Date)"
+                              recordId={record.id}
+                              isEditing={isRowEditing}
+                              onChange={handleFieldChange}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <EditableCell
+                              value={rowData['*始发站（Departure station）']}
+                              field="*始发站（Departure station）"
                               recordId={record.id}
                               isEditing={isRowEditing}
                               onChange={handleFieldChange}

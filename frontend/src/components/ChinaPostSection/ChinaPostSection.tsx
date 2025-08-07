@@ -17,7 +17,6 @@ interface ChinaPostSectionProps {
 
 const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, isAvailable }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAirline, setSelectedAirline] = useState('');
   const [selectedDestination, setSelectedDestination] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -49,10 +48,9 @@ const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, i
       item.flightNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.airline?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesAirline = !selectedAirline || item.airline === selectedAirline;
     const matchesDestination = !selectedDestination || item.destination === selectedDestination;
     
-    return matchesSearch && matchesAirline && matchesDestination;
+    return matchesSearch && matchesDestination;
   });
 
   // Pagination
@@ -96,7 +94,6 @@ const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, i
     };
   }, [chinaPostData]);
 
-  const uniqueAirlines = [...new Set(chinaPostData.map(item => item.airline))].filter(Boolean);
   const uniqueDestinations = [...new Set(chinaPostData.map(item => item.destination))].filter(Boolean);
 
   return (
@@ -251,18 +248,6 @@ const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, i
                 className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
               />
             </div>
-          </div>
-          <div className="lg:w-48">
-            <select
-              value={selectedAirline}
-              onChange={(e) => setSelectedAirline(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
-            >
-              <option value="">All Airlines</option>
-              {uniqueAirlines.map(airline => (
-                <option key={airline} value={airline}>{airline}</option>
-              ))}
-            </select>
           </div>
           <div className="lg:w-48">
             <select
