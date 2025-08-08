@@ -216,7 +216,7 @@ class DataProcessor:
                 'Arrival Date', 'Arrival ULD number', 
                 'Receptacle', 'Bag weight', 'Bag Number',
                 'Tracking Number', 'Declared content', 'HS Code',
-                'Declared Value', 'Currency', 'Number of Packet under same receptacle', 'Tariff amount'
+                'Declared Value', 'Currency', 'Tariff amount', 'Number of Packet under same receptacle'
             ]
             
             # Combine and reorder columns
@@ -227,6 +227,7 @@ class DataProcessor:
             chinapost_df = merged_df[available_cols].copy()
             
             print(f"CHINAPOST export shape: {chinapost_df.shape}")
+            print(f"CHINAPOST columns: {chinapost_df.columns.tolist()}")
             return chinapost_df
             
         except Exception as e:

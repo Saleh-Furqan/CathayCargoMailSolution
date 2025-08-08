@@ -198,8 +198,8 @@ class ProcessedShipment(db.Model):
             'HS Code': self.hs_code or '',
             'Declared Value': self.declared_value or '',
             'Currency': self.currency or '',
+            'Tariff amount': self.tariff_amount or '',
             'Number of Packet under same receptacle': self.number_of_packets or '',
-            'Tariff amount': self.tariff_amount or ''
         }
     
     def to_cbd_format(self):
