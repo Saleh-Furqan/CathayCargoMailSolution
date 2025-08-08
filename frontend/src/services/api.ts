@@ -320,6 +320,7 @@ class ApiService {
 
   async generateCBPFile(_data?: any[]): Promise<Blob> {
     // Ignore frontend data - backend generates directly from database
+    console.warn('generateCBPFile: Using backend database data, ignoring frontend data parameter');
     return this.generateCBDFile();
   }
 }

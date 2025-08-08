@@ -86,15 +86,16 @@ const Dashboard: React.FC<DashboardProps> = ({ data, analyticsData, processResul
       };
     }
 
-    // Fallback: basic analytics from frontend data if backend not available
+    // Minimal fallback: avoid processing frontend data
+    console.warn('Dashboard: Backend analytics not available, showing minimal fallback data');
     return {
       totalShipments: data.length,
       totalWeight: 0,
       totalDeclaredValue: 0,
       totalTariff: 0,
-      uniqueDestinations: new Set(data.map((item: any) => item.host_destination_station).filter(Boolean)).size,
-      uniqueCarriers: new Set(data.map((item: any) => item.flight_carrier_1).filter(Boolean)).size,
-      uniqueReceptacles: new Set(data.map((item: any) => item.receptacle_id).filter(Boolean)).size,
+      uniqueDestinations: 0,
+      uniqueCarriers: 0,
+      uniqueReceptacles: 0,
       destinationData: [],
       carrierData: [],
       currencyData: [],

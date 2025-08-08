@@ -153,6 +153,7 @@ const HistoricalData: React.FC = () => {
     }
 
     try {
+      // Backend generates file directly from database - no frontend data needed
       const blob = await apiService.generateChinaPostFile();
       downloadBlob(blob, `china_post_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
@@ -178,7 +179,8 @@ const HistoricalData: React.FC = () => {
     }
 
     try {
-      const blob = await apiService.generateCBPFile(historicalData);
+      // Backend generates file directly from database - no frontend data needed
+      const blob = await apiService.generateCBDFile();
       downloadBlob(blob, `cbp_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
         message: 'CBP file generated successfully',
@@ -474,78 +476,78 @@ const HistoricalData: React.FC = () => {
                             </td>
                           )}
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">ID: {record.id}</div>
-                            <div className="text-sm text-gray-500">PAWB: {record.pawb || 'N/A'}</div>
-                            <div className="text-xs text-gray-400">Seq: {record.sequence_number || 'N/A'}</div>
+                            <div className="text-sm font-medium text-gray-900">ID: {record['PAWB']}</div>
+                            <div className="text-sm text-gray-500">PAWB: {record['PAWB'] || 'N/A'}</div>
+                            <div className="text-xs text-gray-400">Seq: {record[''] || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">CARDIT: {record.cardit || 'N/A'}</div>
-                            <div className="text-sm text-gray-500 font-mono">Tracking: {record.tracking_number || 'N/A'}</div>
+                            <div className="text-sm font-medium text-gray-900">CARDIT: {record['CARDIT'] || 'N/A'}</div>
+                            <div className="text-sm text-gray-500 font-mono">Tracking: {record['Tracking Number'] || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">
-                              {record.host_origin_station || 'N/A'} → {record.host_destination_station || 'N/A'}
+                              {record['Origin Station'] || 'N/A'} → {record['Destination Station'] || 'N/A'}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">
-                              {record.flight_carrier_1 || 'N/A'} {record.flight_number_1 || ''}
+                              {record['Flight Carrier 1'] || 'N/A'} {record['Flight Number 1'] || ''}
                             </div>
-                            <div className="text-xs text-gray-500">{record.flight_date_1 || 'N/A'}</div>
-                            {record.flight_carrier_2 && (
+                            <div className="text-xs text-gray-500">{record['Flight Date 1'] || 'N/A'}</div>
+                            {record['Flight Carrier 2'] && (
                               <div className="text-xs text-gray-400">
-                                Leg 2: {record.flight_carrier_2} {record.flight_number_2}
+                                Leg 2: {record['Flight Carrier 2']} {record['Flight Number 2']}
                               </div>
                             )}
-                            {record.flight_carrier_3 && (
+                            {record['Flight Carrier 3'] && (
                               <div className="text-xs text-gray-400">
-                                Leg 3: {record.flight_carrier_3} {record.flight_number_3}
+                                Leg 3: {record['Flight Carrier 3']} {record['Flight Number 3']}
                               </div>
                             )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">Arrival: {record.arrival_date || 'N/A'}</div>
-                            <div className="text-xs text-gray-500">ULD: {record.arrival_uld_number || 'N/A'}</div>
+                            <div className="text-sm text-gray-900">Arrival: {record['Arrival Date'] || 'N/A'}</div>
+                            <div className="text-xs text-gray-500">ULD: {record['Arrival ULD'] || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">Bag: {record.bag_number || 'N/A'}</div>
-                            <div className="text-sm font-medium text-gray-900">{record.bag_weight || 'N/A'} kg</div>
-                            <div className="text-xs text-gray-500">Receptacle: {record.receptacle_id || 'N/A'}</div>
+                            <div className="text-sm text-gray-900">Bag: {record['Bag Number'] || 'N/A'}</div>
+                            <div className="text-sm font-medium text-gray-900">{record['Bag Weight (kg)'] || 'N/A'} kg</div>
+                            <div className="text-xs text-gray-500">Receptacle: {record['Receptacle'] || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900" title={record.declared_content || 'N/A'}>
-                              {record.declared_content ? 
-                                (record.declared_content.length > 15 ? 
-                                  record.declared_content.substring(0, 15) + '...' : 
-                                  record.declared_content
+                            <div className="text-sm text-gray-900" title={record['Declared Content'] || 'N/A'}>
+                              {record['Declared Content'] ? 
+                                (record['Declared Content'].length > 15 ? 
+                                  record['Declared Content'].substring(0, 15) + '...' : 
+                                  record['Declared Content']
                                 ) : 'N/A'
                               }
                             </div>
                             <div className="text-sm font-medium text-green-600">
-                              {record.declared_value || 'N/A'} {record.currency || ''}
+                              {record['Declared Value'] || 'N/A'} {record['Currency'] || ''}
                             </div>
-                            <div className="text-xs text-gray-500">HS: {record.hs_code || 'N/A'}</div>
+                            <div className="text-xs text-gray-500">HS: {record['HS Code'] || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-green-600">
-                              Tariff: ${record.tariff_amount || 'N/A'}
+                              Tariff: ${record['Tariff Amount'] || 'N/A'}
                             </div>
                             <div className="text-xs text-gray-500">
-                              Packets: {record.number_of_packets || 'N/A'}
+                              Packets: {record['Number of Packets'] || 'N/A'}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-xs text-gray-900">
-                              Carrier: {record.carrier_code || 'N/A'}
+                              Carrier: {record['Carrier Code'] || 'N/A'}
                             </div>
                             <div className="text-xs text-gray-500">
-                              Flight: {record.flight_trip_number || 'N/A'}
+                              Flight: {record['Flight/Trip Number'] || 'N/A'}
                             </div>
                             <div className="text-xs text-gray-500">
-                              Port: {record.arrival_port_code || 'N/A'}
+                              Port: {record['Arrival Port Code'] || 'N/A'}
                             </div>
                             <div className="text-xs text-gray-500">
-                              USD: ${record.declared_value_usd || 'N/A'}
+                              USD: {record['Declared Value (USD)'] || 'N/A'}
                             </div>
                           </td>
                         </tr>

@@ -123,52 +123,61 @@ class ProcessedShipment(db.Model):
     arrival_date_formatted = db.Column(db.String(50))  # Formatted date for CBD
     declared_value_usd = db.Column(db.String(50))  # USD formatted value for CBD
 
+    def _clean_value(self, value):
+        """Clean value to remove NaN/null strings"""
+        if value is None:
+            return ''
+        val_str = str(value).lower().strip()
+        if val_str in ['nan', 'null', 'none', 'n/a', 'na']:
+            return ''
+        return str(value)
+
     def to_dict(self):
-        """Convert entry to dictionary for API responses"""
+        """Convert entry to dictionary for API responses with clean values"""
         return {
             'id': self.id,
             'created_at': self.created_at.isoformat() if self.created_at else '',
             
             # Core identification
-            'sequence_number': self.sequence_number or '',
-            'pawb': self.pawb or '',
-            'cardit': self.cardit or '',
-            'tracking_number': self.tracking_number or '',
-            'receptacle_id': self.receptacle_id or '',
+            'sequence_number': self._clean_value(self.sequence_number),
+            'pawb': self._clean_value(self.pawb),
+            'cardit': self._clean_value(self.cardit),
+            'tracking_number': self._clean_value(self.tracking_number),
+            'receptacle_id': self._clean_value(self.receptacle_id),
             
             # Flight and routing
-            'host_origin_station': self.host_origin_station or '',
-            'host_destination_station': self.host_destination_station or '',
-            'flight_carrier_1': self.flight_carrier_1 or '',
-            'flight_number_1': self.flight_number_1 or '',
-            'flight_date_1': self.flight_date_1 or '',
-            'flight_carrier_2': self.flight_carrier_2 or '',
-            'flight_number_2': self.flight_number_2 or '',
-            'flight_date_2': self.flight_date_2 or '',
-            'flight_carrier_3': self.flight_carrier_3 or '',
-            'flight_number_3': self.flight_number_3 or '',
-            'flight_date_3': self.flight_date_3 or '',
+            'host_origin_station': self._clean_value(self.host_origin_station),
+            'host_destination_station': self._clean_value(self.host_destination_station),
+            'flight_carrier_1': self._clean_value(self.flight_carrier_1),
+            'flight_number_1': self._clean_value(self.flight_number_1),
+            'flight_date_1': self._clean_value(self.flight_date_1),
+            'flight_carrier_2': self._clean_value(self.flight_carrier_2),
+            'flight_number_2': self._clean_value(self.flight_number_2),
+            'flight_date_2': self._clean_value(self.flight_date_2),
+            'flight_carrier_3': self._clean_value(self.flight_carrier_3),
+            'flight_number_3': self._clean_value(self.flight_number_3),
+            'flight_date_3': self._clean_value(self.flight_date_3),
             
             # Arrival and ULD
-            'arrival_date': self.arrival_date or '',
-            'arrival_uld_number': self.arrival_uld_number or '',
+            'arrival_date': self._clean_value(self.arrival_date),
+            'arrival_uld_number': self._clean_value(self.arrival_uld_number),
             
             # Package details
-            'bag_weight': self.bag_weight or '',
-            'bag_number': self.bag_number or '',
-            'declared_content': self.declared_content or '',
-            'hs_code': self.hs_code or '',
-            'declared_value': self.declared_value or '',
-            'currency': self.currency or '',
-            'number_of_packets': self.number_of_packets or '',
-            'tariff_amount': self.tariff_amount or '',
+            'bag_weight': self._clean_value(self.bag_weight),
+            'bag_number': self._clean_value(self.bag_number),
+            'declared_content': self._clean_value(self.declared_content),
+            'hs_code': self._clean_value(self.hs_code),
+            'declared_value': self._clean_value(self.declared_value),
+            'currency': self._clean_value(self.currency),
+            'number_of_packets': self._clean_value(self.number_of_packets),
+            'tariff_amount': self._clean_value(self.tariff_amount),
             
             # CBD export fields
-            'carrier_code': self.carrier_code or '',
-            'flight_trip_number': self.flight_trip_number or '',
-            'arrival_port_code': self.arrival_port_code or '',
-            'arrival_date_formatted': self.arrival_date_formatted or '',
-            'declared_value_usd': self.declared_value_usd or ''
+            'carrier_code': self._clean_value(self.carrier_code),
+            'flight_trip_number': self._clean_value(self.flight_trip_number),
+            'arrival_port_code': self._clean_value(self.arrival_port_code),
+            'arrival_date_formatted': self._clean_value(self.arrival_date_formatted),
+            'declared_value_usd': self._clean_value(self.declared_value_usd)
         }
     
     def to_chinapost_format(self):

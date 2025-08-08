@@ -21,7 +21,9 @@ with app.app_context():
     db.create_all()
 
 # IODA data file path (the preprocessed master data)
-IODA_DATA_FILE = "../../data processing/master_cardit_inner_event_df(IODA DATA).xlsx"
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+IODA_DATA_FILE = os.path.join(PROJECT_ROOT, "data processing", "master_cardit_inner_event_df(IODA DATA).xlsx")
 
 def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataFrame) -> tuple:
     """Save CHINAPOST export data to database with CBD export fields"""
@@ -143,6 +145,13 @@ def upload_cnp_file():
             # Read the raw CNP data from the first sheet (header=None for custom parsing)
             cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
             
+            # Check if IODA file exists before processing
+            if not os.path.exists(IODA_DATA_FILE):
+                return jsonify({
+                    "error": f"IODA data file not found at {IODA_DATA_FILE}. Please ensure the master IODA data file is available.",
+                    "details": "The IODA (master_cardit_inner_event_df) file is required for data processing but cannot be found."
+                }), 500
+            
             # Initialize data processor with correct IODA file
             processor = DataProcessor(IODA_DATA_FILE)
             
@@ -211,11 +220,20 @@ def get_historical_data():
         # Execute query and return RAW database records
         entries = query.all()
         
-        # Return PURE database data - let frontend handle display formatting
+        # Return cleaned database data with NaN/null filtering
         results = []
         for entry in entries:
-            # Return the complete database record as-is
-            results.append(entry.to_dict())
+            # Get base dictionary and clean up NaN/null values
+            record_dict = entry.to_dict()
+            
+            # Clean up common fields that may contain invalid values
+            for field in ['declared_value', 'tariff_amount', 'bag_weight', 'currency']:
+                if field in record_dict and record_dict[field]:
+                    val_str = str(record_dict[field]).lower().strip()
+                    if val_str in ['nan', 'null', 'none', 'n/a', 'na']:
+                        record_dict[field] = ''
+            
+            results.append(record_dict)
 
         return jsonify({
             'data': results,
@@ -357,33 +375,40 @@ def get_analytics_data():
         carrier_breakdown = {}
         
         for entry in entries:
-            # Weight calculation
+            # Weight calculation - handle all forms of invalid values
+            weight = 0
             try:
-                weight = float(entry.bag_weight) if entry.bag_weight else 0
-                total_weight += weight
-            except:
-                pass
+                if entry.bag_weight:
+                    val_str = str(entry.bag_weight).lower().strip()
+                    if val_str not in ['nan', 'null', 'none', '', 'n/a', 'na']:
+                        weight = float(entry.bag_weight)
+                        if not pd.isna(weight) and weight >= 0:
+                            total_weight += weight
+            except (ValueError, TypeError, AttributeError):
+                weight = 0
             
-            # Declared value calculation - handle 'nan' string values properly
+            # Declared value calculation - handle all forms of invalid values
             declared_val = 0
             try:
-                if entry.declared_value and str(entry.declared_value).lower() not in ['nan', 'null', 'none', '']:
-                    # Try to convert to float, skip if it's actually the string 'nan'
-                    if str(entry.declared_value).lower() != 'nan':
+                if entry.declared_value:
+                    val_str = str(entry.declared_value).lower().strip()
+                    if val_str not in ['nan', 'null', 'none', '', 'n/a', 'na']:
                         declared_val = float(entry.declared_value)
-                        total_declared_value += declared_val
-            except (ValueError, TypeError):
+                        if not pd.isna(declared_val) and declared_val > 0:
+                            total_declared_value += declared_val
+            except (ValueError, TypeError, AttributeError):
                 declared_val = 0
             
-            # Tariff calculation - handle 'nan' string values properly
+            # Tariff calculation - handle all forms of invalid values
             tariff = 0
             try:
-                if entry.tariff_amount and str(entry.tariff_amount).lower() not in ['nan', 'null', 'none', '']:
-                    # Try to convert to float, skip if it's actually the string 'nan'
-                    if str(entry.tariff_amount).lower() != 'nan':
+                if entry.tariff_amount:
+                    val_str = str(entry.tariff_amount).lower().strip()
+                    if val_str not in ['nan', 'null', 'none', '', 'n/a', 'na']:
                         tariff = float(entry.tariff_amount)
-                        total_tariff += tariff
-            except (ValueError, TypeError):
+                        if not pd.isna(tariff) and tariff >= 0:
+                            total_tariff += tariff
+            except (ValueError, TypeError, AttributeError):
                 tariff = 0
             
             # Unique counts
@@ -412,11 +437,13 @@ def get_analytics_data():
             if entry.receptacle_id:
                 receptacles.add(entry.receptacle_id)
             
-            # Currency breakdown
+            # Currency breakdown - filter out invalid currency values
             if entry.currency:
-                if entry.currency not in currencies:
-                    currencies[entry.currency] = 0
-                currencies[entry.currency] += 1
+                curr_str = str(entry.currency).lower().strip()
+                if curr_str not in ['nan', 'null', 'none', '', 'n/a', 'na'] and len(curr_str) <= 10:
+                    if entry.currency not in currencies:
+                        currencies[entry.currency] = 0
+                    currencies[entry.currency] += 1
         
         # Format breakdown data
         dest_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
@@ -896,22 +923,28 @@ def get_chinapost_analytics():
         currencies = {}
         
         for entry in entries:
-            # Weight calculation
+            # Weight calculation - handle all forms of invalid values
+            weight = 0
             try:
-                weight = float(entry.bag_weight) if entry.bag_weight else 0
-                total_weight += weight
-            except:
-                pass
+                if entry.bag_weight:
+                    val_str = str(entry.bag_weight).lower().strip()
+                    if val_str not in ['nan', 'null', 'none', '', 'n/a', 'na']:
+                        weight = float(entry.bag_weight)
+                        if not pd.isna(weight) and weight >= 0:
+                            total_weight += weight
+            except (ValueError, TypeError, AttributeError):
+                weight = 0
             
-            # Declared value calculation - handle 'nan' string values properly
+            # Declared value calculation - handle all forms of invalid values
             declared_val = 0
             try:
-                if entry.declared_value and str(entry.declared_value).lower() not in ['nan', 'null', 'none', '']:
-                    # Try to convert to float, skip if it's actually the string 'nan'
-                    if str(entry.declared_value).lower() != 'nan':
+                if entry.declared_value:
+                    val_str = str(entry.declared_value).lower().strip()
+                    if val_str not in ['nan', 'null', 'none', '', 'n/a', 'na']:
                         declared_val = float(entry.declared_value)
-                        total_declared_value += declared_val
-            except (ValueError, TypeError):
+                        if not pd.isna(declared_val) and declared_val > 0:
+                            total_declared_value += declared_val
+            except (ValueError, TypeError, AttributeError):
                 declared_val = 0
             
             # Tariff calculation - handle 'nan' string values properly
@@ -933,13 +966,15 @@ def get_chinapost_analytics():
                 flights.add(entry.flight_number_1)
             
             # Currency breakdown - filter out invalid currency values
-            currency = entry.currency
-            if currency and currency.lower() not in ['nan', 'null', 'none', '']:
-                if currency not in currencies:
-                    currencies[currency] = {'count': 0, 'totalValue': 0}
-                currencies[currency]['count'] += 1
-                if declared_val > 0:
-                    currencies[currency]['totalValue'] += declared_val
+            if entry.currency:
+                curr_str = str(entry.currency).lower().strip()
+                if curr_str not in ['nan', 'null', 'none', '', 'n/a', 'na'] and len(curr_str) <= 10:
+                    currency = entry.currency
+                    if currency not in currencies:
+                        currencies[currency] = {'count': 0, 'totalValue': 0}
+                    currencies[currency]['count'] += 1
+                    if declared_val > 0:
+                        currencies[currency]['totalValue'] += declared_val
         
         return jsonify({
             'total_weight': round(total_weight, 2),

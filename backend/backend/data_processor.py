@@ -45,12 +45,27 @@ class DataProcessor:
             bool: True if successful, False otherwise
         """
         try:
+            # Check if file exists first
+            if not os.path.exists(self.ioda_file_path):
+                print(f"IODA file not found at path: {self.ioda_file_path}")
+                print("Please ensure the IODA data file exists in the correct location.")
+                return False
+                
             self.master_cardit_inner_event_df = pd.read_excel(self.ioda_file_path)
-            print(f"Loaded IODA data: {self.master_cardit_inner_event_df.shape}")
+            print(f"Successfully loaded IODA data: {self.master_cardit_inner_event_df.shape}")
             print(f"IODA columns: {self.master_cardit_inner_event_df.columns.tolist()}")
+            
+            # Validate required columns
+            required_cols = ['Receptacle']
+            missing_cols = [col for col in required_cols if col not in self.master_cardit_inner_event_df.columns]
+            if missing_cols:
+                print(f"Missing required columns in IODA data: {missing_cols}")
+                return False
+                
             return True
         except Exception as e:
-            print(f"Error loading IODA data: {str(e)}")
+            print(f"Error loading IODA data from {self.ioda_file_path}: {str(e)}")
+            print("Please check that the IODA file is accessible and in the correct Excel format.")
             return False
     
     def _parse_cnp_raw_data(self, cnp_df: pd.DataFrame) -> pd.DataFrame:
