@@ -1,15 +1,35 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Cathay Pacific Brand Colors */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --border: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Cathay Pacific Brand Colors */
+    --cathay-jade: 29, 178, 144;        /* #1DB290 - Primary Jade Green */
+    --cathay-gold: 199, 146, 69;        /* #C79245 - Brand Gold */
+    --cathay-dark-green: 0, 132, 111;   /* #00846F - Dark Jade */
+    --cathay-white: 255, 255, 255;      /* #FFFFFF - Pure White */
+    --cathay-light-gray: 248, 250, 252; /* #F8FAFC - Light Gray */
+    --cathay-dark-gray: 71, 85, 105;    /* #475569 - Dark Gray */
+    --cathay-navy: 30, 41, 59;          /* #1E293B - Navy Blue */
+    
+    /* Semantic Color Mappings */
+    --background: var(--cathay-white);
+    --foreground: var(--cathay-navy);
+    --primary: var(--cathay-jade);
+    --primary-foreground: var(--cathay-white);
+    --secondary: var(--cathay-gold);
+    --secondary-foreground: var(--cathay-navy);
+    --accent: var(--cathay-dark-green);
+    --accent-foreground: var(--cathay-white);
+    --border: 226, 232, 240;            /* #E2E8F0 */
+    --ring: var(--cathay-jade);
+    --success: 34, 197, 94;             /* #22C55E */
+    --warning: var(--cathay-gold);
+    --error: 239, 68, 68;               /* #EF4444 */
   }
 
   * {
@@ -17,8 +37,15 @@
   }
   
   body {
-    @apply text-gray-900 font-sans antialiased;
-    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 25%, #cbd5e1 50%, #94a3b8 75%, #64748b 100%);
+    @apply text-slate-700 font-sans antialiased;
+    /* Sophisticated Cathay Pacific inspired gradient */
+    background: linear-gradient(135deg, 
+      rgb(var(--cathay-white)) 0%, 
+      rgb(var(--cathay-light-gray)) 15%, 
+      rgba(var(--cathay-jade), 0.05) 35%, 
+      rgba(var(--cathay-gold), 0.08) 65%, 
+      rgb(var(--cathay-light-gray)) 85%, 
+      rgb(var(--cathay-white)) 100%);
     background-attachment: fixed;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
@@ -350,5 +377,140 @@
   /* Form spacing */
   .form-spacing {
     @apply space-y-4 sm:space-y-6;
+  }
+
+  /* Cathay Pacific Component Styles */
+  .cathay-card {
+    @apply bg-white/95 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-lg shadow-slate-900/5 hover:shadow-xl hover:shadow-slate-900/10 transition-all duration-300;
+  }
+  
+  .cathay-header {
+    @apply text-slate-900 font-semibold tracking-tight;
+    font-family: 'Playfair Display', serif;
+  }
+  
+  .cathay-subheader {
+    @apply text-slate-600 font-medium;
+  }
+  
+  .cathay-btn-primary {
+    @apply bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 border-0;
+  }
+  
+  .cathay-btn-secondary {
+    @apply bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-900 shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 border-0 font-medium;
+  }
+  
+  .cathay-btn-outline {
+    @apply bg-white/80 hover:bg-white border-2 border-emerald-500 text-emerald-700 hover:text-emerald-800 shadow-md hover:shadow-lg;
+  }
+  
+  .cathay-input {
+    @apply bg-white/90 border-2 border-slate-200 hover:border-emerald-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-lg transition-all duration-200 px-4 py-3 text-slate-700 placeholder-slate-400;
+  }
+  
+  .cathay-select {
+    @apply bg-white/90 border-2 border-slate-200 hover:border-emerald-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-lg transition-all duration-200 px-4 py-3 text-slate-700;
+  }
+  
+  .cathay-badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium;
+  }
+  
+  .cathay-badge-success {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  
+  .cathay-badge-warning {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+  
+  .cathay-badge-info {
+    @apply bg-blue-50 text-blue-700 border border-blue-200;
+  }
+  
+  .cathay-badge-default {
+    @apply bg-slate-50 text-slate-700 border border-slate-200;
+  }
+  
+  .cathay-nav-item {
+    @apply flex items-center px-4 py-3 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/80 rounded-lg transition-all duration-200 font-medium;
+  }
+  
+  .cathay-nav-item.active {
+    @apply text-emerald-700 bg-emerald-50/80 shadow-sm;
+  }
+  
+  .cathay-stat-card {
+    @apply cathay-card p-6 text-center;
+  }
+  
+  .cathay-stat-value {
+    @apply text-3xl font-bold text-slate-900 mb-2;
+    font-family: 'Playfair Display', serif;
+  }
+  
+  .cathay-stat-label {
+    @apply text-sm font-medium text-slate-600 uppercase tracking-wider;
+  }
+  
+  .cathay-table {
+    @apply w-full bg-white/95 backdrop-blur-sm rounded-xl overflow-hidden shadow-lg;
+  }
+  
+  .cathay-table th {
+    @apply bg-slate-50/80 px-6 py-4 text-left text-sm font-semibold text-slate-900 border-b border-slate-200;
+  }
+  
+  .cathay-table td {
+    @apply px-6 py-4 text-sm text-slate-700 border-b border-slate-100;
+  }
+  
+  .cathay-table tr:hover {
+    @apply bg-slate-50/40;
+  }
+  
+  /* Responsive utilities */
+  .cathay-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  .cathay-section {
+    @apply py-8 sm:py-12 lg:py-16;
+  }
+  
+  .cathay-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6;
+  }
+  
+  /* Animation classes */
+  .cathay-fade-in {
+    @apply animate-in fade-in-0 duration-500;
+  }
+  
+  .cathay-slide-up {
+    @apply animate-in slide-in-from-bottom-4 duration-500;
+  }
+  
+  /* Status indicators */
+  .status-configured {
+    @apply text-emerald-700 bg-emerald-50 border-emerald-200;
+  }
+  
+  .status-fallback {
+    @apply text-amber-700 bg-amber-50 border-amber-200;
+  }
+  
+  .status-error {
+    @apply text-red-700 bg-red-50 border-red-200;
+  }
+  
+  /* Tooltip styles */
+  .cathay-tooltip {
+    @apply invisible absolute z-50 py-2 px-3 text-sm font-medium text-white bg-slate-900 rounded-lg shadow-sm opacity-0 tooltip transition-opacity duration-200;
+  }
+  
+  .cathay-tooltip-trigger:hover .cathay-tooltip {
+    @apply visible opacity-100;
   }
 }

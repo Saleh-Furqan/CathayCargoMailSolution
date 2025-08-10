@@ -99,13 +99,6 @@ SERVICE_PATTERNS = {
     ]
 }
 
-def get_category_mappings():
-    """Get the current category mappings"""
-    return CATEGORY_MAPPINGS
-
-def get_service_patterns():
-    """Get the current service patterns"""
-    return SERVICE_PATTERNS
 
 def add_category_keyword(category: str, keyword: str):
     """Add a keyword to an existing category"""

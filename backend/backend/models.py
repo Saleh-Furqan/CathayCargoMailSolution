@@ -14,7 +14,9 @@ class TariffRate(db.Model):
             'postal_service',
             'start_date',
             'end_date',
-            name='uix_tariff_route_extended'
+            'min_weight',
+            'max_weight',
+            name='uix_tariff_route_weight_extended'
         ),
     )
 

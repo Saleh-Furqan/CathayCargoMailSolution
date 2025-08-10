@@ -771,14 +771,16 @@ def create_tariff_rate():
                 'overlapping_rates': overlapping_info
             }), 400
         
-        # Check if rate already exists for this specific combination
+        # Check if rate already exists for this specific combination (including weight range)
         existing_rate = TariffRate.query.filter_by(
             origin_country=origin,
             destination_country=destination,
             goods_category=goods_category,
             postal_service=postal_service,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            min_weight=min_weight,
+            max_weight=max_weight
         ).first()
         
         if existing_rate:
@@ -1696,6 +1698,108 @@ def test_classification():
         
         return jsonify(result)
         
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-services', methods=['GET'])
+def get_classification_services():
+    """Get list of all available postal services"""
+    try:
+        from classification_config import get_service_patterns
+        services = list(get_service_patterns().keys())
+        
+        return jsonify({
+            'success': True,
+            'services': services
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-services/<service>', methods=['GET'])
+def get_service_patterns_api(service):
+    """Get patterns for a specific postal service"""
+    try:
+        from classification_config import get_service_patterns
+        patterns = get_service_patterns()
+        
+        if service not in patterns:
+            return jsonify({
+                'success': False,
+                'error': f'Service "{service}" not found'
+            }), 404
+        
+        # Convert functions to string representations for display
+        pattern_descriptions = []
+        for pattern in patterns[service]:
+            if callable(pattern):
+                pattern_descriptions.append(f"Custom function: {pattern.__name__}")
+            else:
+                pattern_descriptions.append(str(pattern))
+        
+        return jsonify({
+            'success': True,
+            'service': service,
+            'patterns': pattern_descriptions
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-services/<service>/patterns', methods=['POST'])
+def add_service_patterns(service):
+    """Add patterns to a postal service"""
+    try:
+        data = request.json
+        new_patterns = data.get('patterns', [])
+        
+        if not isinstance(new_patterns, list):
+            return jsonify({
+                'success': False,
+                'error': 'Patterns must be provided as a list of strings'
+            }), 400
+        
+        # Store the updated patterns in SystemConfig
+        from classification_config import get_service_patterns
+        import json
+        
+        current_patterns = get_service_patterns()
+        
+        # Convert patterns to storable format (strings only for now)
+        if service not in current_patterns:
+            current_patterns[service] = []
+        
+        # Add new string patterns
+        for pattern in new_patterns:
+            if isinstance(pattern, str) and pattern not in current_patterns[service]:
+                current_patterns[service].append(pattern)
+        
+        # Save updated patterns to database
+        # Note: We can only store simple string patterns, not lambda functions
+        storable_patterns = {}
+        for svc, patterns in current_patterns.items():
+            storable_patterns[svc] = [p for p in patterns if isinstance(p, str)]
+        
+        SystemConfig.set_config(
+            'custom_service_patterns', 
+            json.dumps(storable_patterns),
+            'string',
+            'Custom service patterns for postal service detection'
+        )
+        
+        return jsonify({
+            'success': True,
+            'service': service,
+            'updated_patterns': [p for p in current_patterns[service] if isinstance(p, str)],
+            'message': f'Added patterns to service "{service}". Note: Only string patterns are supported via API.'
+        })
     except Exception as e:
         return jsonify({
             'success': False,
