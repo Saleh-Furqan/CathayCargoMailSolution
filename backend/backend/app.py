@@ -99,8 +99,8 @@ def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataF
             tariff_amount=str(row.get('Tariff amount', '')),
             
             # Enhanced tariff fields
-            declared_content_category=str(row.get('Declared content category', '')),
-            postal_service_type=str(row.get('Postal service type', '')),
+            goods_category=str(row.get('Declared content category', '')),
+            postal_service=str(row.get('Postal service type', '')),
             tariff_rate_used=row.get('Tariff rate used') if pd.notnull(row.get('Tariff rate used')) else None,
             tariff_calculation_method=str(row.get('Tariff calculation method', '')),
             
@@ -228,11 +228,11 @@ def get_historical_data():
         
         # Enhanced filtering by goods category
         if goods_category and goods_category != '*':
-            query = query.filter(ProcessedShipment.declared_content_category == goods_category)
+            query = query.filter(ProcessedShipment.goods_category == goods_category)
         
         # Enhanced filtering by postal service
         if postal_service and postal_service != '*':
-            query = query.filter(ProcessedShipment.postal_service_type == postal_service)
+            query = query.filter(ProcessedShipment.postal_service == postal_service)
         
         # Enhanced filtering by calculation method
         if calculation_method and calculation_method != 'all':
@@ -368,11 +368,11 @@ def get_analytics_data():
             
             # Enhanced filtering by goods category
             if goods_category and goods_category != '*':
-                query = query.filter(ProcessedShipment.declared_content_category == goods_category)
+                query = query.filter(ProcessedShipment.goods_category == goods_category)
             
             # Enhanced filtering by postal service
             if postal_service and postal_service != '*':
-                query = query.filter(ProcessedShipment.postal_service_type == postal_service)
+                query = query.filter(ProcessedShipment.postal_service == postal_service)
             
             # Enhanced filtering by calculation method
             if calculation_method and calculation_method != 'all':
@@ -485,8 +485,8 @@ def get_analytics_data():
                     currencies[entry.currency] += 1
             
             # Category breakdown
-            if entry.declared_content_category:
-                category = entry.declared_content_category
+            if entry.goods_category:
+                category = entry.goods_category
                 if category not in category_breakdown:
                     category_breakdown[category] = {"count": 0, "weight": 0, "value": 0, "tariff": 0}
                 category_breakdown[category]["count"] += 1
@@ -496,8 +496,8 @@ def get_analytics_data():
                 category_breakdown[category]["tariff"] += tariff
             
             # Service breakdown
-            if entry.postal_service_type:
-                service = entry.postal_service_type
+            if entry.postal_service:
+                service = entry.postal_service
                 if service not in service_breakdown:
                     service_breakdown[service] = {"count": 0, "weight": 0, "value": 0, "tariff": 0}
                 service_breakdown[service]["count"] += 1
@@ -708,6 +708,25 @@ def create_tariff_rate():
         if start_date >= end_date:
             return jsonify({'error': 'Start date must be before end date'}), 400
         
+        # Check for overlapping rates
+        overlapping_rates = TariffRate.check_overlapping_rates(
+            origin, destination, goods_category, postal_service, start_date, end_date
+        )
+        
+        if overlapping_rates:
+            overlapping_info = []
+            for rate in overlapping_rates:
+                overlapping_info.append({
+                    'id': rate.id,
+                    'start_date': rate.start_date.isoformat(),
+                    'end_date': rate.end_date.isoformat(),
+                    'rate': rate.tariff_rate
+                })
+            return jsonify({
+                'error': 'Date range overlaps with existing rates',
+                'overlapping_rates': overlapping_info
+            }), 400
+        
         # Check if rate already exists for this specific combination
         existing_rate = TariffRate.query.filter_by(
             origin_country=origin,
@@ -866,6 +885,7 @@ def calculate_tariff():
         origin = data.get('origin_country')
         destination = data.get('destination_country')
         declared_value = float(data.get('declared_value', 0))
+        weight = float(data.get('weight', 0))
         goods_category = data.get('goods_category', '*')
         postal_service = data.get('postal_service', '*')
         ship_date = data.get('ship_date')
@@ -883,10 +903,13 @@ def calculate_tariff():
         else:
             ship_date = date.today()
         
-        # Use the enhanced tariff calculation
+        # Use the enhanced tariff calculation (weight filtering can be added in future)
         result = TariffRate.calculate_tariff_for_shipment(
             origin, destination, declared_value, goods_category, postal_service, ship_date
         )
+        
+        # Store weight for future use in weight-based tariff filtering
+        result['weight'] = weight
         
         if result['rate_used']:
             rate = result['rate_used']
@@ -953,9 +976,9 @@ def get_tariff_categories():
         ).distinct().all()
         
         # Get categories from processed shipments
-        shipment_categories = db.session.query(ProcessedShipment.declared_content_category).filter(
-            ProcessedShipment.declared_content_category.isnot(None),
-            ProcessedShipment.declared_content_category != ''
+        shipment_categories = db.session.query(ProcessedShipment.goods_category).filter(
+            ProcessedShipment.goods_category.isnot(None),
+            ProcessedShipment.goods_category != ''
         ).distinct().all()
         
         categories = set(['*'])  # Always include wildcard
@@ -981,9 +1004,9 @@ def get_tariff_services():
         ).distinct().all()
         
         # Get services from processed shipments
-        shipment_services = db.session.query(ProcessedShipment.postal_service_type).filter(
-            ProcessedShipment.postal_service_type.isnot(None),
-            ProcessedShipment.postal_service_type != ''
+        shipment_services = db.session.query(ProcessedShipment.postal_service).filter(
+            ProcessedShipment.postal_service.isnot(None),
+            ProcessedShipment.postal_service != ''
         ).distinct().all()
         
         services = set(['*'])  # Always include wildcard
@@ -1025,13 +1048,13 @@ def test_enhanced_filters():
         # Category filtering
         goods_category = data.get('goodsCategory')
         if goods_category and goods_category != '*':
-            query = query.filter(ProcessedShipment.declared_content_category == goods_category)
+            query = query.filter(ProcessedShipment.goods_category == goods_category)
             filters_applied.append(f"Category: {goods_category}")
         
         # Service filtering
         postal_service = data.get('postalService')
         if postal_service and postal_service != '*':
-            query = query.filter(ProcessedShipment.postal_service_type == postal_service)
+            query = query.filter(ProcessedShipment.postal_service == postal_service)
             filters_applied.append(f"Service: {postal_service}")
         
         # Method filtering

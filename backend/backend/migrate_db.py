@@ -20,6 +20,31 @@ def migrate_database():
             
             print("Database migration completed successfully!")
             
+            # Update existing records to have default values for new fields
+            print("Updating existing records with default values...")
+            
+            # Update TariffRate records to have weight defaults
+            updated_rates = TariffRate.query.filter(
+                TariffRate.min_weight.is_(None)
+            ).update({
+                'min_weight': 0.0,
+                'max_weight': 999999.0
+            })
+            
+            # Update ProcessedShipment records to have default category/service
+            updated_shipments = ProcessedShipment.query.filter(
+                ProcessedShipment.goods_category.is_(None)
+            ).update({
+                'goods_category': '*',
+                'postal_service': '*',
+                'tariff_calculation_method': 'fallback'
+            })
+            
+            db.session.commit()
+            
+            print(f"Updated {updated_rates} tariff rate records")
+            print(f"Updated {updated_shipments} shipment records")
+            
             # Display current state
             total_rates = TariffRate.query.count()
             total_shipments = ProcessedShipment.query.count()

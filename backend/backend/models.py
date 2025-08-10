@@ -34,6 +34,10 @@ class TariffRate(db.Model):
     start_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now().date())  # Rate validity start
     end_date = db.Column(db.Date, nullable=False, default=lambda: datetime(2099, 12, 31).date())  # Rate validity end
     
+    # Weight-based tariff fields
+    min_weight = db.Column(db.Float, default=0.0)  # Minimum weight for this rate
+    max_weight = db.Column(db.Float, default=999999.0)  # Maximum weight for this rate
+    
     # Tariff configuration
     tariff_rate = db.Column(db.Float, default=0.8)  # Tariff rate (e.g., 0.8 = 80%)
     minimum_tariff = db.Column(db.Float, default=0.0)  # Minimum tariff amount
@@ -43,6 +47,32 @@ class TariffRate(db.Model):
     currency = db.Column(db.String(10), default='USD')
     is_active = db.Column(db.Boolean, default=True)
     notes = db.Column(db.Text)
+    
+    def validate_dates(self):
+        """Validate date ranges"""
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValueError("Start date cannot be after end date")
+    
+    @classmethod
+    def check_overlapping_rates(cls, origin_country, destination_country, goods_category, 
+                               postal_service, start_date, end_date, exclude_id=None):
+        """Check for overlapping rate periods for the same route/category/service"""
+        query = cls.query.filter(
+            cls.origin_country == origin_country,
+            cls.destination_country == destination_country,
+            cls.goods_category == goods_category,
+            cls.postal_service == postal_service,
+            cls.is_active == True,
+            # Check for date overlap: new range overlaps if:
+            # new_start <= existing_end AND new_end >= existing_start
+            cls.start_date <= end_date,
+            cls.end_date >= start_date
+        )
+        
+        if exclude_id:
+            query = query.filter(cls.id != exclude_id)
+            
+        return query.all()
     
     def to_dict(self):
         """Convert to dictionary for API responses"""
@@ -56,6 +86,8 @@ class TariffRate(db.Model):
             'postal_service': self.postal_service,
             'start_date': self.start_date.isoformat() if self.start_date else '',
             'end_date': self.end_date.isoformat() if self.end_date else '',
+            'min_weight': self.min_weight,
+            'max_weight': self.max_weight,
             'tariff_rate': self.tariff_rate,
             'minimum_tariff': self.minimum_tariff,
             'maximum_tariff': self.maximum_tariff,
@@ -221,11 +253,14 @@ class ProcessedShipment(db.Model):
     number_of_packets = db.Column(db.String(50))  # Number of Packet under same receptacle
     tariff_amount = db.Column(db.String(50))  # Tariff amount (calculated from rates)
     
-    # Enhanced tariff fields
-    declared_content_category = db.Column(db.String(100))  # Derived goods category for tariff calculation
-    postal_service_type = db.Column(db.String(100))  # Postal service type for tariff calculation
-    tariff_rate_used = db.Column(db.Float)  # Actual rate used for calculation
-    tariff_calculation_method = db.Column(db.String(50))  # 'configured' or 'fallback'
+    # Enhanced tariff classification fields (for automatic tariff calculation)
+    goods_category = db.Column(db.String(100), default='*')  # Derived goods category
+    postal_service = db.Column(db.String(100), default='*')  # Detected postal service
+    shipment_date = db.Column(db.Date)  # Date for tariff calculation
+    
+    # Tariff calculation metadata
+    tariff_rate_used = db.Column(db.Float)  # Actual rate applied (0.8 = 80%)
+    tariff_calculation_method = db.Column(db.String(20), default='fallback')  # 'configured' or 'fallback'
     
     # CBD export derived fields (computed from CHINAPOST data)
     carrier_code = db.Column(db.String(50))  # Highest leg carrier for CBD
@@ -282,8 +317,9 @@ class ProcessedShipment(db.Model):
             'currency': self._clean_value(self.currency),
             'number_of_packets': self._clean_value(self.number_of_packets),
             'tariff_amount': self._clean_value(self.tariff_amount),
-            'declared_content_category': self._clean_value(self.declared_content_category),
-            'postal_service_type': self._clean_value(self.postal_service_type),
+            'goods_category': self._clean_value(self.goods_category),
+            'postal_service': self._clean_value(self.postal_service),
+            'shipment_date': self.shipment_date.isoformat() if self.shipment_date else '',
             'tariff_rate_used': self.tariff_rate_used,
             'tariff_calculation_method': self._clean_value(self.tariff_calculation_method),
             

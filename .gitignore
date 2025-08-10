@@ -114,3 +114,7 @@ wheels/
 
 # Vite
 .vite/
+
+# Screenshots and images
+Screenshot*.png
+*.png:Zone.Identifier

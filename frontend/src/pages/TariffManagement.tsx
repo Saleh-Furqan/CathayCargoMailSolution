@@ -29,6 +29,12 @@ interface TariffRateConfig {
   id: number;
   origin_country: string;
   destination_country: string;
+  goods_category: string;
+  postal_service: string;
+  start_date: string;
+  end_date: string;
+  min_weight: number;
+  max_weight: number;
   tariff_rate: number;
   minimum_tariff: number;
   maximum_tariff?: number;
@@ -42,6 +48,12 @@ interface TariffRateConfig {
 interface EditingRate {
   origin: string;
   destination: string;
+  goods_category: string;
+  postal_service: string;
+  start_date: string;
+  end_date: string;
+  min_weight: number;
+  max_weight: number;
   tariff_rate: number;
   minimum_tariff: number;
   maximum_tariff: number;
@@ -51,12 +63,18 @@ interface EditingRate {
 interface TariffCalculation {
   origin_country: string;
   destination_country: string;
+  goods_category?: string;
+  postal_service?: string;
+  ship_date?: string;
   declared_value: number;
-  tariff_rate: number;
-  minimum_tariff: number;
+  weight?: number;
+  tariff_rate?: number;
+  minimum_tariff?: number;
   maximum_tariff?: number;
   calculated_tariff: number;
-  currency: string;
+  currency?: string;
+  calculation_method?: string;
+  message?: string;
 }
 
 const TariffManagement: React.FC = () => {
@@ -71,8 +89,13 @@ const TariffManagement: React.FC = () => {
     origin: '',
     destination: '',
     declared_value: '',
+    goods_category: '*',
+    postal_service: '*',
+    ship_date: '',
   });
   const [calculationResult, setCalculationResult] = useState<TariffCalculation | null>(null);
+  const [availableCategories, setAvailableCategories] = useState<string[]>(['*']);
+  const [availableServices, setAvailableServices] = useState<string[]>(['*']);
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'info';
@@ -91,15 +114,19 @@ const TariffManagement: React.FC = () => {
     try {
       setLoading(true);
       
-      const [routesResponse, ratesResponse, defaultsResponse] = await Promise.all([
+      const [routesResponse, ratesResponse, defaultsResponse, categoriesResponse, servicesResponse] = await Promise.all([
         apiService.getTariffRoutes(),
         apiService.getTariffRates(),
-        apiService.getTariffSystemDefaults()
+        apiService.getTariffSystemDefaults(),
+        apiService.getTariffCategories(),
+        apiService.getTariffServices()
       ]);
       
       setRoutes(routesResponse.routes || []);
       setConfiguredRates(ratesResponse.tariff_rates || []);
       setSystemDefaults(defaultsResponse);
+      setAvailableCategories(categoriesResponse.categories || ['*']);
+      setAvailableServices(servicesResponse.services || ['*']);
       
       showNotification(`Loaded ${routesResponse.total_routes} routes and ${ratesResponse.total_rates} configured rates`, 'success');
     } catch (error) {
@@ -113,10 +140,15 @@ const TariffManagement: React.FC = () => {
   const handleEditRate = (route: TariffRoute) => {
     const existing = route.configured_rate;
     const defaults = systemDefaults?.system_defaults;
+    const today = new Date().toISOString().split('T')[0];
     
     setEditingRate({
       origin: route.origin,
       destination: route.destination,
+      goods_category: existing?.goods_category || '*',
+      postal_service: existing?.postal_service || '*',
+      start_date: existing?.start_date || today,
+      end_date: existing?.end_date || '2099-12-31',
       tariff_rate: existing?.tariff_rate || route.historical_rate || defaults?.default_tariff_rate || 0,
       minimum_tariff: existing?.minimum_tariff || defaults?.default_minimum_tariff || 0,
       maximum_tariff: existing?.maximum_tariff || defaults?.suggested_maximum_tariff || 100,
@@ -131,6 +163,10 @@ const TariffManagement: React.FC = () => {
       const rateData = {
         origin_country: editingRate.origin,
         destination_country: editingRate.destination,
+        goods_category: editingRate.goods_category,
+        postal_service: editingRate.postal_service,
+        start_date: editingRate.start_date,
+        end_date: editingRate.end_date,
         tariff_rate: editingRate.tariff_rate,
         minimum_tariff: editingRate.minimum_tariff,
         maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
@@ -138,7 +174,7 @@ const TariffManagement: React.FC = () => {
       };
 
       await apiService.createTariffRate(rateData);
-      showNotification(`Tariff rate saved for ${editingRate.origin} → ${editingRate.destination}`, 'success');
+      showNotification(`Tariff rate saved for ${editingRate.origin} → ${editingRate.destination} (${editingRate.goods_category}/${editingRate.postal_service})`, 'success');
       
       setEditingRate(null);
       fetchData(); // Refresh data
@@ -173,9 +209,15 @@ const TariffManagement: React.FC = () => {
       const result = await apiService.calculateTariff(
         calculatorData.origin,
         calculatorData.destination,
-        parseFloat(calculatorData.declared_value)
+        parseFloat(calculatorData.declared_value),
+        calculatorData.goods_category !== '*' ? calculatorData.goods_category : undefined,
+        calculatorData.postal_service !== '*' ? calculatorData.postal_service : undefined,
+        calculatorData.ship_date || undefined
       );
       setCalculationResult(result);
+      if (result.message) {
+        showNotification(result.message, 'info');
+      }
     } catch (error) {
       console.error('Error calculating tariff:', error);
       showNotification(`Error calculating tariff: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
@@ -318,7 +360,7 @@ const TariffManagement: React.FC = () => {
       {showCalculator && (
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Tariff Calculator</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Origin</label>
               <select
@@ -348,6 +390,36 @@ const TariffManagement: React.FC = () => {
             </div>
             
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Goods Category</label>
+              <select
+                value={calculatorData.goods_category}
+                onChange={(e) => setCalculatorData({...calculatorData, goods_category: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+              >
+                {availableCategories.map(category => (
+                  <option key={category} value={category}>
+                    {category === '*' ? 'All Categories' : category}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Postal Service</label>
+              <select
+                value={calculatorData.postal_service}
+                onChange={(e) => setCalculatorData({...calculatorData, postal_service: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+              >
+                {availableServices.map(service => (
+                  <option key={service} value={service}>
+                    {service === '*' ? 'All Services' : service}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Declared Value ($)</label>
               <input
                 type="number"
@@ -367,27 +439,65 @@ const TariffManagement: React.FC = () => {
             </button>
           </div>
           
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Ship Date (optional)</label>
+            <input
+              type="date"
+              value={calculatorData.ship_date}
+              onChange={(e) => setCalculatorData({...calculatorData, ship_date: e.target.value})}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+            />
+          </div>
+          
           {calculationResult && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
-              <h4 className="font-medium text-green-800 mb-2">Calculation Result</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className={`mt-4 p-4 border rounded-md ${
+              calculationResult.calculation_method === 'configured' 
+                ? 'bg-green-50 border-green-200' 
+                : 'bg-yellow-50 border-yellow-200'
+            }`}>
+              <h4 className={`font-medium mb-2 ${
+                calculationResult.calculation_method === 'configured' 
+                  ? 'text-green-800' 
+                  : 'text-yellow-800'
+              }`}>
+                Calculation Result ({calculationResult.calculation_method === 'configured' ? 'Configured Rate' : 'Fallback Rate'})
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
                 <div>
-                  <span className="text-green-600">Route:</span>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Route:</span>
                   <p className="font-medium">{calculationResult.origin_country} → {calculationResult.destination_country}</p>
                 </div>
                 <div>
-                  <span className="text-green-600">Rate:</span>
-                  <p className="font-medium">{(calculationResult.tariff_rate * 100).toFixed(1)}%</p>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Category:</span>
+                  <p className="font-medium">{calculationResult.goods_category || '*'}</p>
                 </div>
                 <div>
-                  <span className="text-green-600">Declared Value:</span>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Service:</span>
+                  <p className="font-medium">{calculationResult.postal_service || '*'}</p>
+                </div>
+                <div>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Rate:</span>
+                  <p className="font-medium">
+                    {calculationResult.tariff_rate 
+                      ? `${(calculationResult.tariff_rate * 100).toFixed(1)}%`
+                      : '80% (fallback)'
+                    }
+                  </p>
+                </div>
+                <div>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Declared Value:</span>
                   <p className="font-medium">${calculationResult.declared_value.toFixed(2)}</p>
                 </div>
                 <div>
-                  <span className="text-green-600">Tariff Amount:</span>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Tariff Amount:</span>
                   <p className="font-medium text-lg">${calculationResult.calculated_tariff.toFixed(2)}</p>
                 </div>
               </div>
+              {calculationResult.message && (
+                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                  {calculationResult.message}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -511,7 +621,7 @@ const TariffManagement: React.FC = () => {
       {/* Edit Rate Modal */}
       {editingRate && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               Configure Tariff Rate
             </h3>
@@ -520,6 +630,79 @@ const TariffManagement: React.FC = () => {
             </p>
             
             <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Goods Category
+                  </label>
+                  <select
+                    value={editingRate.goods_category}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      goods_category: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  >
+                    {availableCategories.map(category => (
+                      <option key={category} value={category}>
+                        {category === '*' ? 'All Categories' : category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Postal Service
+                  </label>
+                  <select
+                    value={editingRate.postal_service}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      postal_service: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  >
+                    {availableServices.map(service => (
+                      <option key={service} value={service}>
+                        {service === '*' ? 'All Services' : service}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editingRate.start_date}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      start_date: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editingRate.end_date}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      end_date: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tariff Rate (%)

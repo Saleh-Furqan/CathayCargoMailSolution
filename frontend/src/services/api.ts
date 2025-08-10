@@ -39,13 +39,21 @@ class ApiService {
     return response.json();
   }
 
-  async getHistoricalData(startDate: string, endDate: string) {
+  async getHistoricalData(startDate: string, endDate: string, filters?: {
+    goodsCategory?: string;
+    postalService?: string;
+    calculationMethod?: string;
+  }) {
     const response = await fetch(`${API_BASE_URL}/historical-data`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ startDate, endDate }),
+      body: JSON.stringify({ 
+        startDate, 
+        endDate,
+        ...filters
+      }),
     });
 
     if (!response.ok) {
@@ -119,7 +127,11 @@ class ApiService {
     return response.json();
   }
 
-  async getAnalytics(startDate?: string, endDate?: string) {
+  async getAnalytics(startDate?: string, endDate?: string, filters?: {
+    goodsCategory?: string;
+    postalService?: string;
+    calculationMethod?: string;
+  }) {
     const url = `${API_BASE_URL}/get-analytics-data`;
     const options: RequestInit = {
       method: startDate && endDate ? 'POST' : 'GET',
@@ -129,7 +141,11 @@ class ApiService {
       options.headers = {
         'Content-Type': 'application/json',
       };
-      options.body = JSON.stringify({ startDate, endDate });
+      options.body = JSON.stringify({ 
+        startDate, 
+        endDate,
+        ...filters
+      });
     }
     
     const response = await fetch(url, options);
@@ -186,6 +202,10 @@ class ApiService {
   async createTariffRate(tariffRateData: {
     origin_country: string;
     destination_country: string;
+    goods_category?: string;
+    postal_service?: string;
+    start_date?: string;
+    end_date?: string;
     tariff_rate: number;
     minimum_tariff?: number;
     maximum_tariff?: number;
@@ -245,7 +265,8 @@ class ApiService {
     return response.json();
   }
 
-  async calculateTariff(origin: string, destination: string, declaredValue: number) {
+  async calculateTariff(origin: string, destination: string, declaredValue: number, 
+                       weight?: number, goodsCategory?: string, postalService?: string, shipDate?: string) {
     const response = await fetch(`${API_BASE_URL}/calculate-tariff`, {
       method: 'POST',
       headers: {
@@ -255,6 +276,10 @@ class ApiService {
         origin_country: origin,
         destination_country: destination,
         declared_value: declaredValue,
+        weight: weight,
+        goods_category: goodsCategory,
+        postal_service: postalService,
+        ship_date: shipDate,
       }),
     });
 
@@ -265,6 +290,26 @@ class ApiService {
     }
 
     return data;
+  }
+
+  async getTariffCategories() {
+    const response = await fetch(`${API_BASE_URL}/tariff-categories`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get tariff categories');
+    }
+    
+    return response.json();
+  }
+
+  async getTariffServices() {
+    const response = await fetch(`${API_BASE_URL}/tariff-services`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get tariff services');
+    }
+    
+    return response.json();
   }
 
   async getCBPAnalytics(startDate?: string, endDate?: string) {
