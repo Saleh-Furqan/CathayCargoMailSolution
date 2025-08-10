@@ -1,10 +1,21 @@
-<svg width="100" height="28" viewBox="0 0 100 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="120" height="28" viewBox="0 0 120 28" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="logoGradientDark" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#367878;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2C4036;stop-opacity:0.9" />
+    <linearGradient id="birdGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1DB290;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00846F;stop-opacity:1" />
     </linearGradient>
   </defs>
-  <rect x="0" y="8" width="24" height="12" rx="2" fill="url(#logoGradientDark)"/>
-  <text x="28" y="18" fill="#2D2D2D" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="-0.02em">Cathay</text>
+  
+  <!-- Cathay Pacific Bird Logo -->
+  <g transform="translate(2, 4)">
+    <!-- Main bird body -->
+    <path d="M8 10 C6 8, 10 6, 14 8 C18 10, 20 12, 18 14 C16 16, 12 14, 8 10 Z" fill="url(#birdGradient)"/>
+    <!-- Wing sweep -->
+    <path d="M14 8 C16 6, 20 8, 22 10 C24 12, 22 14, 20 12 C18 10, 16 8, 14 8 Z" fill="url(#birdGradient)" opacity="0.8"/>
+    <!-- Tail feather -->
+    <path d="M8 10 C6 12, 4 14, 6 16 C8 14, 10 12, 8 10 Z" fill="url(#birdGradient)" opacity="0.6"/>
+  </g>
+  
+  <!-- Company name -->
+  <text x="32" y="18" fill="#1E293B" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="-0.02em">CATHAY</text>
 </svg>

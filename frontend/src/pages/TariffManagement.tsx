@@ -9,9 +9,18 @@ import {
   Search,
   AlertTriangle,
   CheckCircle,
-  Calculator
+  Calculator,
+  HelpCircle
 } from 'lucide-react';
 import { apiService } from '../services/api';
+import { 
+  formatDisplayValue, 
+  getFieldExplanation, 
+  createTooltipProps, 
+  formatPercentage, 
+  formatCurrency, 
+  getStatusBadge 
+} from '../utils/displayHelpers';
 
 interface TariffRoute {
   origin: string;
@@ -436,7 +445,7 @@ const TariffManagement: React.FC = () => {
               >
                 {availableCategories.map(category => (
                   <option key={category} value={category}>
-                    {category === '*' ? 'All Categories' : category}
+                    {formatDisplayValue(category)}
                   </option>
                 ))}
               </select>
@@ -451,7 +460,7 @@ const TariffManagement: React.FC = () => {
               >
                 {availableServices.map(service => (
                   <option key={service} value={service}>
-                    {service === '*' ? 'All Services' : service}
+                    {formatDisplayValue(service)}
                   </option>
                 ))}
               </select>
@@ -521,11 +530,11 @@ const TariffManagement: React.FC = () => {
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Category:</span>
-                  <p className="font-medium">{calculationResult.goods_category === '*' ? 'All' : (calculationResult.goods_category || 'All')}</p>
+                  <p className="font-medium">{formatDisplayValue(calculationResult.goods_category)}</p>
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Service:</span>
-                  <p className="font-medium">{calculationResult.postal_service === '*' ? 'All' : (calculationResult.postal_service || 'All')}</p>
+                  <p className="font-medium">{formatDisplayValue(calculationResult.postal_service)}</p>
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Rate:</span>
@@ -755,7 +764,7 @@ const TariffManagement: React.FC = () => {
                   >
                     {availableCategories.map(category => (
                       <option key={category} value={category}>
-                        {category === '*' ? 'All Categories' : category}
+                        {formatDisplayValue(category)}
                       </option>
                     ))}
                   </select>
@@ -775,7 +784,7 @@ const TariffManagement: React.FC = () => {
                   >
                     {availableServices.map(service => (
                       <option key={service} value={service}>
-                        {service === '*' ? 'All Services' : service}
+                        {formatDisplayValue(service)}
                       </option>
                     ))}
                   </select>

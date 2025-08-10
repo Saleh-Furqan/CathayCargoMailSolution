@@ -33,7 +33,7 @@
   }
 
   * {
-    @apply border-border;
+    @apply border-slate-200;
   }
   
   body {
@@ -485,11 +485,23 @@
   
   /* Animation classes */
   .cathay-fade-in {
-    @apply animate-in fade-in-0 duration-500;
+    @apply animate-pulse duration-500 opacity-0;
+    animation: fadeIn 0.5s ease-in-out forwards;
   }
   
   .cathay-slide-up {
-    @apply animate-in slide-in-from-bottom-4 duration-500;
+    @apply transform translate-y-4 opacity-0;
+    animation: slideUp 0.5s ease-out forwards;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes slideUp {
+    from { transform: translateY(16px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
   
   /* Status indicators */

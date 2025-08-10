@@ -19,33 +19,28 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen">
-      {/* Modern Cathay Pacific Header */}
-      <header className="sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
+      {/* Clean Cathay Pacific Header */}
+      <header className="sticky top-0 z-50 w-full bg-white/98 backdrop-blur-xl border-b border-emerald-100/60 shadow-sm">
         <div className="cathay-container">
           {/* Desktop Header */}
-          <div className="hidden lg:flex h-20 items-center justify-between">
-            {/* Logo and Brand */}
-            <div className="flex items-center space-x-8">
-              <div className="flex items-center space-x-4">
-                <img 
-                  src="/cathay-logo.svg" 
-                  alt="Cathay Pacific" 
-                  className="h-10 w-auto"
-                />
-                <div className="hidden xl:block h-8 w-px bg-slate-200"></div>
-                <div className="hidden xl:block">
-                  <h1 className="cathay-header text-2xl">
-                    Mail Solution
-                  </h1>
-                  <p className="cathay-subheader text-sm">
-                    US Tariff Compliance System
-                  </p>
-                </div>
+          <div className="hidden lg:flex h-16 items-center justify-between">
+            {/* Logo and Brand - Simplified */}
+            <div className="flex items-center space-x-6">
+              <img 
+                src="/favicon.ico" 
+                alt="Cathay Pacific" 
+                className="h-8 w-auto"
+              />
+              <div className="flex items-center space-x-3">
+                <Mail className="h-5 w-5 text-emerald-600" />
+                <h1 className="text-xl font-semibold text-slate-800 tracking-tight">
+                  Cargo Mail System
+                </h1>
               </div>
             </div>
             
-            {/* Navigation */}
-            <nav className="flex items-center space-x-2">
+            {/* Clean Navigation */}
+            <nav className="flex items-center space-x-1">
               {navigation.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -53,54 +48,46 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <Link
                     key={item.name}
                     to={item.path}
-                    className={`cathay-nav-item ${isActive ? 'active' : ''}`}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      isActive
+                        ? 'text-emerald-700 bg-emerald-50 shadow-sm'
+                        : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/70'
+                    }`}
                   >
-                    <Icon className="h-5 w-5" />
-                    <span className="hidden xl:inline">{item.name}</span>
+                    <Icon className="h-4 w-4" />
+                    <span>{item.name}</span>
                   </Link>
                 );
               })}
             </nav>
-            
-            {/* Status and Version */}
-            <div className="flex items-center space-x-4">
-              <div className="cathay-badge cathay-badge-success">
-                Production Ready
-              </div>
-              <div className="hidden xl:block text-right">
-                <div className="text-xs text-slate-500 font-medium">
-                  v2.0.0 | Enhanced
-                </div>
-              </div>
-            </div>
           </div>
 
-          {/* Mobile Header */}
-          <div className="lg:hidden flex items-center justify-between h-16">
+          {/* Mobile Header - Simplified */}
+          <div className="lg:hidden flex items-center justify-between h-14">
             <div className="flex items-center space-x-3">
               <img 
-                src="/cathay-logo.svg" 
+                src="/favicon.ico" 
                 alt="Cathay Pacific" 
-                className="h-8 w-auto"
+                className="h-6 w-auto"
               />
-              <div>
-                <h1 className="cathay-header text-lg">Mail Solution</h1>
-                <div className="cathay-badge cathay-badge-success text-xs">Ready</div>
+              <div className="flex items-center space-x-2">
+                <Mail className="h-4 w-4 text-emerald-600" />
+                <h1 className="text-lg font-semibold text-slate-800">Cargo Mail</h1>
               </div>
             </div>
             
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="cathay-btn-outline p-2"
+              className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 transition-colors"
             >
               {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
 
-          {/* Mobile Navigation Menu */}
+          {/* Mobile Navigation Menu - Clean */}
           {isMobileMenuOpen && (
-            <div className="lg:hidden border-t border-slate-200/60 py-4 cathay-fade-in">
-              <nav className="grid grid-cols-2 gap-3">
+            <div className="lg:hidden border-t border-emerald-100/60 py-3 bg-white/95">
+              <nav className="space-y-1">
                 {navigation.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
@@ -109,10 +96,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       key={item.name}
                       to={item.path}
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className={`cathay-nav-item ${isActive ? 'active' : ''} justify-center text-center flex-col space-x-0 space-y-1`}
+                      className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'text-emerald-700 bg-emerald-50'
+                          : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/70'
+                      }`}
                     >
-                      <Icon className="h-5 w-5" />
-                      <span className="text-xs">{item.name}</span>
+                      <Icon className="h-4 w-4" />
+                      <span>{item.name}</span>
                     </Link>
                   );
                 })}
@@ -131,22 +122,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-slate-50/80 border-t border-slate-200/60 py-8">
+      {/* Minimal Footer */}
+      <footer className="border-t border-slate-100 py-6">
         <div className="cathay-container">
-          <div className="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between space-y-2 sm:space-y-0">
+            <div className="flex items-center space-x-3">
               <img 
-                src="/cathay-logo.svg" 
+                src="/favicon.ico" 
                 alt="Cathay Pacific" 
-                className="h-6 w-auto opacity-60"
+                className="h-5 w-auto opacity-60"
               />
-              <div className="text-sm text-slate-600">
-                © 2025 Cathay Pacific Airways Limited. All rights reserved.
-              </div>
-            </div>
-            <div className="text-sm text-slate-500">
-              Enhanced Tariff Management System
+              <span className="text-sm text-slate-500">
+                © 2025 Cathay Pacific Airways Limited
+              </span>
             </div>
           </div>
         </div>
