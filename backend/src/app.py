@@ -1749,7 +1749,8 @@ def test_classification():
                 'Sender Name': data.get('sender_name', ''),
                 'Receiver Name': data.get('receiver_name', '')
             }
-            service_result = processor._derive_postal_service(mock_row)
+            import pandas as pd
+            service_result = processor._derive_postal_service(pd.Series(mock_row))
         
         result = {
             'success': True,

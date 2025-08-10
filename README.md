@@ -190,6 +190,15 @@ npm install
 # npm install react@18.3.1 typescript@5.5.4
 ```
 
+### Alternative Quick Start
+For the fastest setup, use the provided start script:
+```bash
+# Make executable and run
+chmod +x start.sh
+./start.sh
+```
+This script will set up both backend and frontend automatically.
+
 ### Development Mode
 
 Run both servers for development with hot-reloading:
@@ -252,28 +261,38 @@ For production deployment:
 ### 2. Navigation Structure
 ```
 📤 Data Processing (/)  
-├── CNP file upload and processing
-├── Pre-merged IODA data integration
-├── Automated tariff calculation
-├── Business insights and analytics dashboard
-└── Fallback rate usage summary
+├── CNP file upload and processing via drag-and-drop interface
+├── Real-time processing status and validation
+├── Pre-merged IODA data integration and matching
+├── Automated tariff calculation with rate explanations
+├── Business insights dashboard with analytics charts
+├── Export capabilities (ChinaPost/CBP formats)
+└── Processing history and fallback rate usage summary
 
 📊 Historical Data (/historical-data)
-├── Shipment history and search
-├── Data export capabilities
-└── Historical analytics
+├── Comprehensive shipment history with advanced filtering
+├── Search by tracking number, date range, route, or category
+├── Detailed shipment views with tariff calculation breakdowns
+├── Data export capabilities in multiple formats
+├── Historical analytics and trend visualization
+└── Bulk operations on historical data
 
 ⚙️  Tariff Management (/tariff-management)
-├── Multi-dimensional rate configuration
-├── Weight-based filtering with overlap validation
-├── Batch tariff recalculation
-└── Rate testing calculator
+├── Multi-dimensional tariff rate configuration interface
+├── Route-based rate management (origin → destination)
+├── Weight-based filtering with overlap validation and warnings
+├── Date range management with conflict detection
+├── Interactive tariff calculator for testing rates
+├── Batch tariff recalculation for existing shipments
+└── System fallback rate configuration
 
 🧠 Classification Management (/classification-management)
-├── Goods category keyword management
-├── Classification testing tool
-├── Postal service pattern viewing
-└── Real-time classification validation
+├── Interactive goods category and keyword management
+├── Real-time classification testing with confidence scoring
+├── Keyword-to-category mapping interface
+├── Service pattern viewing and documentation
+├── Classification accuracy monitoring and validation
+└── Admin tools for category maintenance
 ```
 
 ### 3. Core Workflows
@@ -511,48 +530,86 @@ CathayCargoMailSolution/
 │   ├── src/
 │   │   ├── components/              # Reusable UI components
 │   │   │   ├── Layout/             # App shell and navigation
-│   │   │   └── Dashboard/          # Analytics components  
-│   │   ├── pages/                  # Route-level components
-│   │   │   ├── DataIngestionSimple.tsx      # File upload and processing
-│   │   │   ├── TariffManagement.tsx         # Rate configuration
-│   │   │   ├── ClassificationManagement.tsx # Category/service management
-│   │   │   └── HistoricalData.tsx           # Historical analytics
+│   │   │   ├── Dashboard/          # Analytics components
+│   │   │   ├── CBPSection/         # CBP-specific UI components
+│   │   │   ├── ChinaPostSection/   # ChinaPost-specific UI components
+│   │   │   ├── TariffSection/      # Tariff management components
+│   │   │   ├── CountryFlag/        # Country flag display components
+│   │   │   ├── EnhancedFilters/    # Advanced filtering components
+│   │   │   └── Notification/       # Toast and notification components
+│   │   ├── pages/                  # Route-level page components
+│   │   │   ├── DataIngestionSimple.tsx      # Main file upload and processing
+│   │   │   ├── TariffManagement.tsx         # Comprehensive rate configuration
+│   │   │   ├── ClassificationManagement.tsx # Category and service management
+│   │   │   ├── HistoricalData.tsx           # Shipment history and analytics
+│   │   │   ├── CBPReporting.tsx             # CBP-specific reporting
+│   │   │   ├── ChinaPostInvoicing.tsx       # ChinaPost-specific features
+│   │   │   ├── DataConsolidation.tsx        # Data consolidation tools
+│   │   │   ├── Reconciliation.tsx           # Data reconciliation features
+│   │   │   ├── Settings.tsx                 # System configuration
+│   │   │   └── ShipmentTracking.tsx         # Shipment tracking features
 │   │   ├── services/               # API integration layer
-│   │   │   └── api.ts             # HTTP client and endpoints
-│   │   └── types/                 # TypeScript definitions
-│   ├── public/                     # Static assets (logos, icons)
-│   └── package.json               # Dependencies and scripts
+│   │   │   └── api.ts             # HTTP client and all API endpoints
+│   │   ├── types/                 # TypeScript type definitions
+│   │   │   └── index.ts           # Comprehensive type definitions
+│   │   └── utils/                 # Utility functions
+│   │       └── displayHelpers.ts  # UI formatting and display utilities
+│   ├── public/                     # Static assets
+│   │   ├── cathay-logo.svg        # Main Cathay logo
+│   │   ├── cathay-logo-white.svg  # White variant logo
+│   │   └── favicon.ico            # Browser favicon
+│   └── package.json               # Dependencies and build scripts
 │
 ├── ⚙️ backend/                       # Flask API (Python)
 │   ├── src/                        # Organized source code
-│   │   ├── app.py                 # Main Flask application
+│   │   ├── app.py                 # Main Flask application with all API endpoints
 │   │   ├── config/                # Configuration files
-│   │   │   ├── settings.py        # App configuration
-│   │   │   └── classification.py  # Classification mappings
-│   │   ├── models/                # Database models
-│   │   │   └── database.py        # SQLAlchemy models
-│   │   ├── services/              # Business logic
-│   │   │   └── data_processor.py  # CNP data processing
-│   │   └── utils/                 # Utility functions
-│   │       └── helpers.py         # Common utilities
+│   │   │   ├── settings.py        # Flask app configuration and environment
+│   │   │   └── classification.py  # Goods classification and service mappings
+│   │   ├── models/                # SQLAlchemy database models
+│   │   │   └── database.py        # ProcessedShipment, TariffRate, SystemConfig models
+│   │   ├── services/              # Core business logic
+│   │   │   └── data_processor.py  # CNP data processing and IODA integration
+│   │   └── utils/                 # Utility functions and helpers
+│   │       ├── data_converter.py  # Safe data type conversion utilities
+│   │       └── migrate_db.py      # Database migration utilities
 │   ├── migrations/                 # Alembic database migrations
-│   ├── templates/                  # Excel templates
-│   ├── data/                      # Data files & database
-│   │   ├── shipments.db           # SQLite database
-│   │   └── *.log                 # Application logs
-│   ├── tests/                     # Test files (future)
+│   │   ├── versions/              # Version-controlled migration files
+│   │   ├── alembic.ini           # Alembic configuration
+│   │   └── env.py                # Migration environment setup
+│   ├── templates/                  # Excel file templates
+│   │   ├── CBP transported package worksheet file template.xlsx
+│   │   └── China Post data source file template.xlsx
+│   ├── data/                      # Runtime data and database
+│   │   ├── shipments.db           # SQLite database (production-ready)
+│   │   ├── sample_data.json       # Sample data for testing
+│   │   ├── app.log               # Application logs
+│   │   ├── server.log            # Server operation logs
+│   │   └── *.xlsx                # Generated export files
+│   ├── debug_test.py              # Development debugging script
+│   ├── setup_migrations.py        # Database initialization script
+│   ├── deploy.py                  # Production deployment validation
+│   ├── run.sh                    # Startup script
 │   ├── requirements.txt           # Python dependencies
-│   ├── setup_migrations.py        # Database setup
-│   ├── deploy.py                  # Deployment script
-│   └── venv/                      # Virtual environment
+│   └── venv/                      # Python virtual environment
 │
 ├── 📊 sample-data/                   # Sample data and analysis
-│   ├── ioda/                      # IODA reference data files
-│   ├── cnp/                       # CNP sample files
-│   └── notebooks/                 # Jupyter analysis notebooks
+│   ├── ioda/                      # Pre-processed IODA reference data files
+│   │   ├── CBD EXPORT.xlsx        # CBP export sample data
+│   │   ├── CHINAPOST EXPORT.xlsx  # ChinaPost export sample data
+│   │   ├── IMPORTED DATA.xlsx     # Sample imported IODA data
+│   │   ├── Sample_Data_from_IODA_v4 (China Post).xlsx # IODA sample v4
+│   │   └── master_cardit_inner_event_df(IODA DATA).xlsx # Main IODA dataset
+│   ├── cnp/                       # CNP sample input files
+│   │   └── Sample Data.xlsx       # CNP raw data sample for testing
+│   └── notebooks/                 # Data analysis and processing notebooks
+│       └── script_v4.ipynb        # Data processing analysis notebook
 │
+├── start.sh                         # Quick start script for development
+├── pyrightconfig.json               # Python language server configuration
 ├── README.md                        # This comprehensive guide
-└── ENHANCED_TARIFF_IMPLEMENTATION.md # Technical specification
+├── START_HERE.md                    # Quick start documentation
+└── ENHANCED_TARIFF_IMPLEMENTATION.md # Technical specification and design
 ```
 
 ### 🔧 Configuration Management
