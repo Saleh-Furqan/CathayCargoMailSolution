@@ -206,6 +206,8 @@ class ApiService {
     postal_service?: string;
     start_date?: string;
     end_date?: string;
+    min_weight?: number;
+    max_weight?: number;
     tariff_rate: number;
     minimum_tariff?: number;
     maximum_tariff?: number;
@@ -353,6 +355,27 @@ class ApiService {
       throw new Error('Failed to get China Post analytics data');
     }
     
+    return response.json();
+  }
+
+  async batchRecalculateTariffs(filters?: {
+    start_date?: string;
+    end_date?: string;
+    routes?: string[];
+  }) {
+    const response = await fetch(`${API_BASE_URL}/batch-recalculate-tariffs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(filters || {}),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to recalculate tariffs');
+    }
+
     return response.json();
   }
 

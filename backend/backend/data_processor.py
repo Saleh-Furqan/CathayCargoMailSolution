@@ -434,7 +434,7 @@ class DataProcessor:
                     # No valid data for calculation
                     results['tariff_amounts'].append(0)
                     results['categories'].append('Unknown')
-                    results['services'].append('*')
+                    results['services'].append('All')
                     results['rates_used'].append(0)
                     results['methods'].append('no_data')
             
@@ -455,7 +455,7 @@ class DataProcessor:
             return {
                 'tariff_amounts': [0] * row_count,
                 'categories': ['Unknown'] * row_count,
-                'services': ['*'] * row_count,
+                'services': ['All'] * row_count,
                 'rates_used': [0.8] * row_count,
                 'methods': ['error'] * row_count
             }
@@ -471,66 +471,13 @@ class DataProcessor:
             str: Derived category
         """
         if not declared_content:
-            return '*'
+            return 'All'
         
         content_lower = str(declared_content).lower().strip()
         
-        # Enhanced category mapping with more comprehensive keywords
-        category_mappings = {
-            'Documents': [
-                'document', 'paper', 'letter', 'bill', 'invoice', 'contract', 
-                'certificate', 'passport', 'visa', 'form', 'report', 'manual',
-                'brochure', 'leaflet', 'catalog', 'catalogue', 'magazine'
-            ],
-            'Electronics': [
-                'electronic', 'phone', 'computer', 'laptop', 'tablet', 'gadget',
-                'mobile', 'cellphone', 'smartphone', 'iphone', 'android', 'pc',
-                'camera', 'headphone', 'earphone', 'speaker', 'charger', 'cable',
-                'battery', 'chip', 'circuit', 'motherboard', 'processor', 'memory',
-                'hard drive', 'ssd', 'usb', 'bluetooth', 'wifi', 'router'
-            ],
-            'Clothing & Textiles': [
-                'clothing', 'shirt', 'pants', 'dress', 'skirt', 'jacket', 'coat',
-                'shoes', 'boot', 'sandal', 'sock', 'underwear', 'bra', 'tie',
-                'hat', 'cap', 'glove', 'scarf', 'fabric', 'textile', 'cotton',
-                'wool', 'silk', 'polyester', 'leather', 'denim'
-            ],
-            'Personal Care & Cosmetics': [
-                'cosmetic', 'makeup', 'lipstick', 'foundation', 'mascara', 'perfume',
-                'cologne', 'shampoo', 'conditioner', 'soap', 'lotion', 'cream',
-                'skincare', 'moisturizer', 'sunscreen', 'toothpaste', 'deodorant'
-            ],
-            'Pharmaceuticals': [
-                'medicine', 'pharmaceutical', 'drug', 'medical', 'pill', 'tablet',
-                'capsule', 'syrup', 'injection', 'vaccine', 'antibiotic', 'vitamin',
-                'supplement', 'prescription', 'otc', 'over the counter'
-            ],
-            'Food & Beverages': [
-                'food', 'snack', 'chocolate', 'candy', 'cookie', 'biscuit', 'tea',
-                'coffee', 'drink', 'beverage', 'juice', 'wine', 'alcohol', 'spice',
-                'sauce', 'oil', 'honey', 'jam', 'cereal', 'rice', 'noodle'
-            ],
-            'Books & Media': [
-                'book', 'magazine', 'newspaper', 'journal', 'novel', 'textbook',
-                'cd', 'dvd', 'blu-ray', 'music', 'movie', 'film', 'video', 'game'
-            ],
-            'Toys & Games': [
-                'toy', 'doll', 'puzzle', 'game', 'board game', 'card game', 'lego',
-                'action figure', 'stuffed animal', 'teddy bear', 'ball', 'bike'
-            ],
-            'Jewelry & Accessories': [
-                'jewelry', 'jewellery', 'necklace', 'bracelet', 'ring', 'earring',
-                'watch', 'chain', 'pendant', 'diamond', 'gold', 'silver', 'pearl'
-            ],
-            'Home & Garden': [
-                'furniture', 'chair', 'table', 'bed', 'sofa', 'lamp', 'mirror',
-                'vase', 'plant', 'seed', 'tool', 'hammer', 'screwdriver', 'paint'
-            ],
-            'Sports & Fitness': [
-                'sport', 'fitness', 'exercise', 'gym', 'ball', 'racket', 'golf',
-                'tennis', 'basketball', 'football', 'soccer', 'running', 'yoga'
-            ]
-        }
+        # Use configurable category mappings
+        from classification_config import get_category_mappings
+        category_mappings = get_category_mappings()
         
         # Check each category for keyword matches
         for category, keywords in category_mappings.items():
@@ -560,41 +507,9 @@ class DataProcessor:
         except (ValueError, TypeError):
             declared_value = 0
         
-        # Enhanced tracking number pattern matching
-        service_patterns = {
-            'EMS': [
-                # EMS patterns
-                lambda t: t.startswith('E') and 'CN' in t,
-                lambda t: 'EMS' in t,
-                lambda t: t.startswith('EE') or t.startswith('EP'),
-                lambda t: t.startswith('CX') and len(t) == 13,  # China EMS format
-            ],
-            'Registered Mail': [
-                # Registered mail patterns
-                lambda t: t.startswith('R') and 'CN' in t,
-                lambda t: t.startswith('L') and 'CN' in t,
-                lambda t: 'REG' in t,
-                lambda t: t.startswith('RR') or t.startswith('RL'),
-            ],
-            'Air Mail': [
-                # Air mail patterns
-                lambda t: t.startswith('C') and 'CN' in t,
-                lambda t: 'AIR' in t,
-                lambda t: t.startswith('CP') or t.startswith('CA'),
-            ],
-            'E-packet': [
-                # E-packet patterns
-                lambda t: t.startswith('L') and len(t) == 13,
-                lambda t: 'PACKET' in t,
-                lambda t: t.startswith('LP') or t.startswith('LK'),
-            ],
-            'Surface Mail': [
-                # Surface mail patterns  
-                lambda t: t.startswith('N') and 'CN' in t,
-                lambda t: 'SURFACE' in t or 'SEA' in t,
-                lambda t: t.startswith('NS') or t.startswith('NM'),
-            ]
-        }
+        # Use configurable service patterns
+        from classification_config import get_service_patterns
+        service_patterns = get_service_patterns()
         
         # Check tracking number patterns
         for service, patterns in service_patterns.items():
@@ -618,7 +533,7 @@ class DataProcessor:
             return 'Registered Mail'  # Medium-value items often registered
         
         # Default to wildcard if no pattern matches
-        return '*'
+        return 'All'
     
     def _parse_shipment_date(self, date_str: str) -> date:
         """

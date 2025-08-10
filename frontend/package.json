@@ -1,7 +1,7 @@
 {
-  "name": "cathay-cargo-tariff-frontend",
+  "name": "cathay-mail-tariff-frontend",
   "version": "1.0.0",
-  "description": "Cathay Pacific Cargo US Tariff Management System - Frontend",
+  "description": "Cathay Pacific Mail US Tariff Management System - Frontend",
   "type": "module",
   "scripts": {
     "dev": "vite",

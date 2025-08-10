@@ -432,7 +432,7 @@ const DataIngestion: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Cargo Mail Processing System</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Mail Processing System</h1>
           <div className="mt-1 flex items-center space-x-4">
             <p className="text-gray-600">
               Complete solution for China Post and CBP data processing with analytics

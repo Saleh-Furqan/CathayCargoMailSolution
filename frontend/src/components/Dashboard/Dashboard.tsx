@@ -120,7 +120,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, analyticsData, processResul
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 leading-tight">Business Analytics Dashboard</h2>
-          <p className="text-gray-600 leading-relaxed">Insights from your processed cargo mail data</p>
+          <p className="text-gray-600 leading-relaxed">Insights from your processed mail shipment data</p>
         </div>
         <div className="flex items-center space-x-2 text-sm text-gray-500 flex-shrink-0">
           <Clock className="h-4 w-4" />

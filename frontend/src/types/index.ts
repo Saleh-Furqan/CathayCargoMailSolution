@@ -1,4 +1,4 @@
-// Cathay Cargo Mail Solution - Template Processing Types
+// Cathay Mail Solution - Template Processing Types
 
 // File processing types
 export interface DataFile {

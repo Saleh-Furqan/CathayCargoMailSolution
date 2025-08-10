@@ -89,6 +89,7 @@ const TariffManagement: React.FC = () => {
     origin: '',
     destination: '',
     declared_value: '',
+    weight: '',
     goods_category: '*',
     postal_service: '*',
     ship_date: '',
@@ -149,6 +150,8 @@ const TariffManagement: React.FC = () => {
       postal_service: existing?.postal_service || '*',
       start_date: existing?.start_date || today,
       end_date: existing?.end_date || '2099-12-31',
+      min_weight: existing?.min_weight || 0,
+      max_weight: existing?.max_weight || 999999,
       tariff_rate: existing?.tariff_rate || route.historical_rate || defaults?.default_tariff_rate || 0,
       minimum_tariff: existing?.minimum_tariff || defaults?.default_minimum_tariff || 0,
       maximum_tariff: existing?.maximum_tariff || defaults?.suggested_maximum_tariff || 100,
@@ -167,6 +170,8 @@ const TariffManagement: React.FC = () => {
         postal_service: editingRate.postal_service,
         start_date: editingRate.start_date,
         end_date: editingRate.end_date,
+        min_weight: editingRate.min_weight,
+        max_weight: editingRate.max_weight,
         tariff_rate: editingRate.tariff_rate,
         minimum_tariff: editingRate.minimum_tariff,
         maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
@@ -210,6 +215,7 @@ const TariffManagement: React.FC = () => {
         calculatorData.origin,
         calculatorData.destination,
         parseFloat(calculatorData.declared_value),
+        parseFloat(calculatorData.weight) || undefined,
         calculatorData.goods_category !== '*' ? calculatorData.goods_category : undefined,
         calculatorData.postal_service !== '*' ? calculatorData.postal_service : undefined,
         calculatorData.ship_date || undefined
@@ -221,6 +227,29 @@ const TariffManagement: React.FC = () => {
     } catch (error) {
       console.error('Error calculating tariff:', error);
       showNotification(`Error calculating tariff: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const handleBatchRecalculate = async () => {
+    if (!window.confirm('This will recalculate tariffs for all processed shipments using current rate configurations. Continue?')) {
+      return;
+    }
+
+    try {
+      showNotification('Starting batch recalculation...', 'success');
+      const result = await apiService.batchRecalculateTariffs();
+      
+      if (result.success) {
+        showNotification(
+          `${result.message}. Updated: ${result.updated_count}, Skipped: ${result.skipped_count}`, 
+          'success'
+        );
+      } else {
+        showNotification(`Batch recalculation failed: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      console.error('Error during batch recalculation:', error);
+      showNotification(`Batch recalculation error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -282,12 +311,21 @@ const TariffManagement: React.FC = () => {
         
         <div className="flex items-center space-x-3">
           <button
+            onClick={handleBatchRecalculate}
+            className="inline-flex items-center px-4 py-2 border border-orange-300 text-orange-700 bg-orange-50 rounded-md text-sm font-medium hover:bg-orange-100"
+            title="Recalculate tariffs for all processed shipments using current rate configurations. Useful after updating rate rules."
+          >
+            <TrendingUp className="h-4 w-4 mr-2" />
+            Recalculate All Tariffs
+          </button>
+          <button
             onClick={() => setShowCalculator(!showCalculator)}
             className={`inline-flex items-center px-4 py-2 border rounded-md text-sm font-medium ${
               showCalculator
                 ? 'border-cathay-teal text-cathay-teal bg-teal-50'
                 : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
             }`}
+            title="Calculate tariffs for specific shipments using configured rates or system defaults"
           >
             <Calculator className="h-4 w-4 mr-2" />
             Tariff Calculator
@@ -431,6 +469,20 @@ const TariffManagement: React.FC = () => {
               />
             </div>
             
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Weight (kg) - optional</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={calculatorData.weight}
+                onChange={(e) => setCalculatorData({...calculatorData, weight: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                placeholder="0.00"
+                title="Package weight for weight-based rate filtering. Leave empty to calculate without weight restrictions."
+              />
+            </div>
+            
             <button
               onClick={handleCalculateTariff}
               className="btn-primary px-4 py-2 h-10"
@@ -462,27 +514,31 @@ const TariffManagement: React.FC = () => {
               }`}>
                 Calculation Result ({calculationResult.calculation_method === 'configured' ? 'Configured Rate' : 'Fallback Rate'})
               </h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 text-sm">
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Route:</span>
                   <p className="font-medium">{calculationResult.origin_country} → {calculationResult.destination_country}</p>
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Category:</span>
-                  <p className="font-medium">{calculationResult.goods_category || '*'}</p>
+                  <p className="font-medium">{calculationResult.goods_category === '*' ? 'All' : (calculationResult.goods_category || 'All')}</p>
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Service:</span>
-                  <p className="font-medium">{calculationResult.postal_service || '*'}</p>
+                  <p className="font-medium">{calculationResult.postal_service === '*' ? 'All' : (calculationResult.postal_service || 'All')}</p>
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Rate:</span>
                   <p className="font-medium">
                     {calculationResult.tariff_rate 
                       ? `${(calculationResult.tariff_rate * 100).toFixed(1)}%`
-                      : '80% (fallback)'
+                      : '80% (system fallback - no configured rate found)'
                     }
                   </p>
+                </div>
+                <div>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Weight:</span>
+                  <p className="font-medium">{calculationResult.weight ? `${calculationResult.weight} kg` : 'Not specified'}</p>
                 </div>
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Declared Value:</span>
@@ -493,6 +549,12 @@ const TariffManagement: React.FC = () => {
                   <p className="font-medium text-lg">${calculationResult.calculated_tariff.toFixed(2)}</p>
                 </div>
               </div>
+              {calculationResult.calculation_method === 'fallback' && (
+                <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-sm text-orange-800">
+                  <strong>Using Fallback Rate:</strong> No specific tariff configuration found for this route/category/service combination. 
+                  The system is using the default 80% rate. Configure a specific rate above for more accurate calculations.
+                </div>
+              )}
               {calculationResult.message && (
                 <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
                   {calculationResult.message}
@@ -561,9 +623,14 @@ const TariffManagement: React.FC = () => {
                     {route.shipment_count.toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-medium text-gray-900">
-                      {(route.historical_rate * 100).toFixed(1)}%
-                    </span>
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">
+                        {(route.historical_rate * 100).toFixed(1)}%
+                      </span>
+                      <div className="text-xs text-gray-500">
+                        Based on {route.shipment_count} shipment{route.shipment_count !== 1 ? 's' : ''}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {route.configured_rate ? (
@@ -579,7 +646,12 @@ const TariffManagement: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <span className="text-sm text-gray-400">Not configured</span>
+                      <div>
+                        <span className="text-sm text-orange-600 font-medium">Using Fallback</span>
+                        <div className="text-xs text-gray-500">
+                          System will use {(route.historical_rate * 100).toFixed(1)}% rate
+                        </div>
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -630,6 +702,44 @@ const TariffManagement: React.FC = () => {
             </p>
             
             <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Origin Country
+                  </label>
+                  <select
+                    value={editingRate.origin}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      origin: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  >
+                    {uniqueStations.map(station => (
+                      <option key={station} value={station}>{station}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Destination Country
+                  </label>
+                  <select
+                    value={editingRate.destination}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      destination: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  >
+                    {uniqueStations.map(station => (
+                      <option key={station} value={station}>{station}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -703,6 +813,46 @@ const TariffManagement: React.FC = () => {
                   />
                 </div>
               </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Min Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editingRate.min_weight}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      min_weight: parseFloat(e.target.value) || 0
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Max Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editingRate.max_weight}
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      max_weight: parseFloat(e.target.value) || 999999
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Leave high value (999999) for no upper limit
+                  </p>
+                </div>
+              </div>
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tariff Rate (%)

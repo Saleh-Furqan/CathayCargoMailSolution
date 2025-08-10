@@ -1,12 +1,13 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from flask_migrate import Migrate
 import pandas as pd
 import io
 import os
-from datetime import datetime
+from datetime import datetime, date
 from models import db, ProcessedShipment, TariffRate
 from config import Config
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, or_
 from data_processor import DataProcessor
 
 def _safe_float(value):
@@ -32,6 +33,7 @@ app.config.from_object(Config)
 
 # Initialize the database
 db.init_app(app)
+migrate = Migrate(app, db)
 CORS(app)
 
 # Create database tables
@@ -1337,6 +1339,115 @@ def get_chinapost_analytics():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/batch-recalculate-tariffs', methods=['POST'])
+def batch_recalculate_tariffs():
+    """Recalculate tariffs for all or filtered processed shipments"""
+    try:
+        data = request.json or {}
+        
+        # Build query based on optional filters
+        query = ProcessedShipment.query
+        
+        # Date range filter
+        if data.get('start_date') and data.get('end_date'):
+            query = query.filter(
+                and_(
+                    ProcessedShipment.arrival_date.isnot(None),
+                    ProcessedShipment.arrival_date != '',
+                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= data['start_date'],
+                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= data['end_date']
+                )
+            )
+        
+        # Route filter
+        if data.get('routes'):
+            route_filters = []
+            for route in data['routes']:
+                if ' → ' in route:
+                    origin, destination = route.split(' → ')
+                    route_filters.append(
+                        and_(
+                            ProcessedShipment.host_origin_station == origin.strip(),
+                            ProcessedShipment.host_destination_station == destination.strip()
+                        )
+                    )
+            if route_filters:
+                query = query.filter(or_(*route_filters))
+        
+        # Get shipments to recalculate
+        shipments = query.all()
+        
+        if not shipments:
+            return jsonify({
+                'success': True,
+                'message': 'No shipments found matching the specified filters',
+                'updated_count': 0
+            })
+        
+        updated_count = 0
+        
+        for shipment in shipments:
+            try:
+                # Get shipment details for tariff calculation
+                origin = shipment.host_origin_station
+                destination = shipment.host_destination_station
+                declared_value = _safe_float(shipment.declared_value) or 0
+                bag_weight = _safe_float(shipment.bag_weight) or 0
+                
+                # Use current classification or derive new one
+                goods_category = shipment.declared_content_category or '*'
+                postal_service = shipment.postal_service or '*'
+                
+                # Parse ship date
+                ship_date = None
+                if shipment.arrival_date:
+                    try:
+                        ship_date = datetime.strptime(shipment.arrival_date[:10], '%Y-%m-%d').date()
+                    except:
+                        ship_date = date.today()
+                else:
+                    ship_date = date.today()
+                
+                # Calculate new tariff using enhanced system
+                if declared_value > 0 and origin and destination:
+                    tariff_result = TariffRate.calculate_tariff_for_shipment(
+                        origin, destination, declared_value, goods_category, postal_service, ship_date, bag_weight
+                    )
+                    
+                    # Update shipment with new tariff calculation
+                    shipment.tariff_amount = round(tariff_result['tariff_amount'], 2)
+                    shipment.tariff_calculation_method = 'configured' if not tariff_result['fallback_used'] else 'fallback'
+                    
+                    # Update rate used
+                    if tariff_result['rate_used']:
+                        shipment.tariff_rate_used = tariff_result['rate_used'].tariff_rate
+                    else:
+                        shipment.tariff_rate_used = 0.8  # fallback rate
+                    
+                    updated_count += 1
+                
+            except Exception as e:
+                print(f"Error recalculating tariff for shipment {shipment.id}: {str(e)}")
+                continue
+        
+        # Commit all updates
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully recalculated tariffs for {updated_count} shipments',
+            'total_shipments': len(shipments),
+            'updated_count': updated_count,
+            'skipped_count': len(shipments) - updated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Batch recalculation failed: {str(e)}'
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
