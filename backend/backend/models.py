@@ -4,13 +4,17 @@ from datetime import datetime
 db = SQLAlchemy()
 
 class TariffRate(db.Model):
-    """Model for storing tariff rates between countries/stations"""
+    """Enhanced model for storing comprehensive tariff rates with goods category, postal service, and date ranges"""
     __tablename__ = 'tariff_rates'
     __table_args__ = (
         db.UniqueConstraint(
             'origin_country', 
             'destination_country',
-            name='uix_tariff_route'
+            'goods_category',
+            'postal_service',
+            'start_date',
+            'end_date',
+            name='uix_tariff_comprehensive'
         ),
     )
 
@@ -21,6 +25,16 @@ class TariffRate(db.Model):
     # Route definition
     origin_country = db.Column(db.String(100), nullable=False)  # Origin country/station
     destination_country = db.Column(db.String(100), nullable=False)  # Destination country/station
+    
+    # Enhanced tariff variables from workflow diagram
+    goods_category = db.Column(db.String(100), nullable=False, default='*')  # Goods category (e.g., Documents, Merchandise, Electronics, or * for all)
+    postal_service = db.Column(db.String(100), nullable=False, default='*')  # Postal service type (e.g., EMS, E-packet, Registered Mail, or * for all)
+    start_date = db.Column(db.Date, nullable=False)  # Rate validity start date
+    end_date = db.Column(db.Date, nullable=False)  # Rate validity end date
+    
+    # Optional weight brackets for weight-based tariffs
+    min_weight = db.Column(db.Float, default=None)  # Minimum weight (kg) for this rate
+    max_weight = db.Column(db.Float, default=None)  # Maximum weight (kg) for this rate
     
     # Tariff configuration
     tariff_rate = db.Column(db.Float, default=0.8)  # Tariff rate (e.g., 0.8 = 80%)
@@ -33,13 +47,19 @@ class TariffRate(db.Model):
     notes = db.Column(db.Text)
     
     def to_dict(self):
-        """Convert to dictionary for API responses"""
+        """Convert to dictionary for API responses with enhanced fields"""
         return {
             'id': self.id,
             'created_at': self.created_at.isoformat() if self.created_at else '',
             'updated_at': self.updated_at.isoformat() if self.updated_at else '',
             'origin_country': self.origin_country,
             'destination_country': self.destination_country,
+            'goods_category': self.goods_category,
+            'postal_service': self.postal_service,
+            'start_date': self.start_date.isoformat() if self.start_date else '',
+            'end_date': self.end_date.isoformat() if self.end_date else '',
+            'min_weight': self.min_weight,
+            'max_weight': self.max_weight,
             'tariff_rate': self.tariff_rate,
             'minimum_tariff': self.minimum_tariff,
             'maximum_tariff': self.maximum_tariff,
@@ -48,10 +68,17 @@ class TariffRate(db.Model):
             'notes': self.notes or ''
         }
     
-    def calculate_tariff(self, declared_value):
-        """Calculate tariff amount for a given declared value"""
+    def calculate_tariff(self, declared_value, weight=None):
+        """Enhanced tariff calculation with optional weight consideration"""
         if not self.is_active or declared_value <= 0:
             return 0.0
+        
+        # Check weight brackets if applicable
+        if weight is not None:
+            if self.min_weight is not None and weight < self.min_weight:
+                return 0.0
+            if self.max_weight is not None and weight > self.max_weight:
+                return 0.0
         
         tariff_amount = declared_value * self.tariff_rate
         
@@ -64,6 +91,33 @@ class TariffRate(db.Model):
             tariff_amount = self.maximum_tariff
         
         return round(tariff_amount, 2)
+    
+    def is_applicable_for_date(self, date):
+        """Check if this rate is valid for the given date"""
+        return self.start_date <= date <= self.end_date if date else False
+    
+    def matches_criteria(self, goods_category=None, postal_service=None):
+        """Check if this rate matches the given criteria (supports wildcards)"""
+        goods_match = (self.goods_category == '*' or 
+                      (goods_category and self.goods_category == goods_category) or
+                      goods_category is None)
+        
+        service_match = (self.postal_service == '*' or 
+                        (postal_service and self.postal_service == postal_service) or
+                        postal_service is None)
+        
+        return goods_match and service_match
+    
+    def specificity_score(self):
+        """Calculate specificity score for sorting (higher = more specific)"""
+        score = 0
+        if self.goods_category != '*':
+            score += 4
+        if self.postal_service != '*':
+            score += 2
+        if self.min_weight is not None or self.max_weight is not None:
+            score += 1
+        return score
 
 class ProcessedShipment(db.Model):
     """Model for storing processed CHINAPOST export data (the complete workflow output)"""
@@ -114,7 +168,12 @@ class ProcessedShipment(db.Model):
     declared_value = db.Column(db.String(50))  # Declared Value
     currency = db.Column(db.String(10))  # Currency
     number_of_packets = db.Column(db.String(50))  # Number of Packet under same receptacle
-    tariff_amount = db.Column(db.String(50))  # Tariff amount (80% of declared value)
+    tariff_amount = db.Column(db.String(50))  # Tariff amount (calculated using enhanced tariff logic)
+    
+    # Enhanced tariff classification fields (for advanced tariff calculation)
+    goods_category = db.Column(db.String(100), default='*')  # Derived from declared_content or user input
+    postal_service = db.Column(db.String(100), default='*')  # Derived from input data or user specification
+    shipment_date = db.Column(db.Date)  # Calculated shipment date for tariff rate lookup
     
     # CBD export derived fields (computed from CHINAPOST data)
     carrier_code = db.Column(db.String(50))  # Highest leg carrier for CBD
@@ -172,6 +231,11 @@ class ProcessedShipment(db.Model):
             'number_of_packets': self._clean_value(self.number_of_packets),
             'tariff_amount': self._clean_value(self.tariff_amount),
             
+            # Enhanced tariff classification fields
+            'goods_category': self._clean_value(self.goods_category),
+            'postal_service': self._clean_value(self.postal_service),
+            'shipment_date': self.shipment_date.isoformat() if self.shipment_date else '',
+            
             # CBD export fields
             'carrier_code': self._clean_value(self.carrier_code),
             'flight_trip_number': self._clean_value(self.flight_trip_number),
@@ -221,3 +285,80 @@ class ProcessedShipment(db.Model):
             'Arrival Date': self.arrival_date_formatted or '',
             'Declared Value (USD)': self.declared_value_usd or ''
         }
+    
+    def classify_goods_category(self):
+        """Automatically classify goods category based on declared content and HS code"""
+        if not self.declared_content:
+            return '*'
+        
+        content_lower = str(self.declared_content).lower().strip()
+        
+        # Document-related keywords
+        if any(keyword in content_lower for keyword in ['document', 'paper', 'letter', 'mail', 'invoice', 'contract']):
+            return 'Documents'
+        
+        # Electronics keywords  
+        if any(keyword in content_lower for keyword in ['electronic', 'phone', 'computer', 'tablet', 'battery', 'charger']):
+            return 'Electronics'
+        
+        # Clothing keywords
+        if any(keyword in content_lower for keyword in ['clothing', 'shirt', 'dress', 'shoe', 'apparel', 'textile']):
+            return 'Clothing'
+        
+        # Jewelry/Luxury keywords
+        if any(keyword in content_lower for keyword in ['jewelry', 'watch', 'gold', 'silver', 'diamond', 'ring']):
+            return 'Jewelry'
+        
+        # Medicine/Health keywords
+        if any(keyword in content_lower for keyword in ['medicine', 'drug', 'supplement', 'vitamin', 'pharmaceutical']):
+            return 'Medicine'
+        
+        # Use HS code for more specific classification if available
+        if self.hs_code:
+            hs_code = str(self.hs_code).strip()
+            if hs_code.startswith(('61', '62', '63')):  # Textiles/Clothing
+                return 'Clothing'
+            elif hs_code.startswith(('84', '85')):  # Electronics/Machinery
+                return 'Electronics'
+            elif hs_code.startswith(('71',)):  # Jewelry
+                return 'Jewelry'
+            elif hs_code.startswith(('30',)):  # Pharmaceuticals
+                return 'Medicine'
+        
+        # Default to general merchandise
+        return 'Merchandise'
+    
+    def calculate_shipment_date(self):
+        """Calculate the best shipment date from available date fields"""
+        from datetime import datetime
+        
+        # Priority: flight_date_1 > arrival_date > created_at
+        date_candidates = [
+            self.flight_date_1,
+            self.arrival_date,
+        ]
+        
+        for date_str in date_candidates:
+            if date_str:
+                try:
+                    # Try various date formats
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
+                        try:
+                            return datetime.strptime(str(date_str).split()[0], fmt).date()
+                        except ValueError:
+                            continue
+                except:
+                    continue
+        
+        # Fallback to creation date
+        return self.created_at.date() if self.created_at else None
+    
+    def auto_populate_tariff_fields(self):
+        """Automatically populate tariff classification fields"""
+        if not self.goods_category or self.goods_category == '*':
+            self.goods_category = self.classify_goods_category()
+        
+        if not self.shipment_date:
+            self.shipment_date = self.calculate_shipment_date()
+        
+        # postal_service defaults to '*' but could be derived from other fields in the future

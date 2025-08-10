@@ -3,10 +3,11 @@ from flask_cors import CORS
 import pandas as pd
 import io
 import os
-from datetime import datetime
+from datetime import datetime, date
 from models import db, ProcessedShipment, TariffRate
+from tariff_calculator import tariff_calculator
 from config import Config
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, or_
 from data_processor import DataProcessor
 
 app = Flask(__name__)
@@ -595,62 +596,60 @@ def get_tariff_rates():
 
 @app.route('/tariff-rates', methods=['POST'])
 def create_tariff_rate():
-    """Create or update a tariff rate for a route"""
+    """Create a new tariff rate with enhanced fields"""
     try:
         data = request.json
-        origin = data.get('origin_country')
-        destination = data.get('destination_country')
         
-        if not origin or not destination:
-            return jsonify({'error': 'Origin and destination countries are required'}), 400
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
         
-        # Check if rate already exists
-        existing_rate = TariffRate.query.filter_by(
-            origin_country=origin,
-            destination_country=destination
-        ).first()
+        # Validate required fields
+        required_fields = ['origin_country', 'destination_country', 'start_date', 'end_date']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'Missing required field: {field}'}), 400
         
-        if existing_rate:
-            # Update existing rate
-            existing_rate.tariff_rate = data.get('tariff_rate', existing_rate.tariff_rate)
-            existing_rate.minimum_tariff = data.get('minimum_tariff', existing_rate.minimum_tariff)
-            existing_rate.maximum_tariff = data.get('maximum_tariff', existing_rate.maximum_tariff)
-            existing_rate.currency = data.get('currency', existing_rate.currency)
-            existing_rate.is_active = data.get('is_active', existing_rate.is_active)
-            existing_rate.notes = data.get('notes', existing_rate.notes)
-            existing_rate.updated_at = datetime.now()
-            
-            db.session.commit()
-            
+        # Validate rate conflicts using tariff calculator
+        validation_errors = tariff_calculator.validate_rate_conflicts(data)
+        if validation_errors:
             return jsonify({
-                'message': 'Tariff rate updated successfully',
-                'tariff_rate': existing_rate.to_dict()
-            })
-        else:
-            # Validate required fields
-            tariff_rate = data.get('tariff_rate')
-            if tariff_rate is None:
-                return jsonify({'error': 'tariff_rate is required'}), 400
-                
-            # Create new rate
-            new_rate = TariffRate(
-                origin_country=origin,
-                destination_country=destination,
-                tariff_rate=tariff_rate,
-                minimum_tariff=data.get('minimum_tariff', 0.0),
-                maximum_tariff=data.get('maximum_tariff'),
-                currency=data.get('currency', 'USD'),
-                is_active=data.get('is_active', True),
-                notes=data.get('notes', '')
-            )
-            
-            db.session.add(new_rate)
-            db.session.commit()
-            
-            return jsonify({
-                'message': 'Tariff rate created successfully',
-                'tariff_rate': new_rate.to_dict()
-            }), 201
+                'error': 'Validation failed',
+                'details': validation_errors
+            }), 400
+        
+        # Parse dates
+        try:
+            start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+            end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+        except ValueError as e:
+            return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
+        
+        # Create new tariff rate
+        new_rate = TariffRate(
+            origin_country=data['origin_country'],
+            destination_country=data['destination_country'],
+            goods_category=data.get('goods_category', '*'),
+            postal_service=data.get('postal_service', '*'),
+            start_date=start_date,
+            end_date=end_date,
+            min_weight=data.get('min_weight'),
+            max_weight=data.get('max_weight'),
+            tariff_rate=data.get('tariff_rate', 0.8),
+            minimum_tariff=data.get('minimum_tariff', 0.0),
+            maximum_tariff=data.get('maximum_tariff'),
+            currency=data.get('currency', 'USD'),
+            notes=data.get('notes', ''),
+            is_active=True
+        )
+        
+        db.session.add(new_rate)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Tariff rate created successfully',
+            'tariff_rate': new_rate.to_dict()
+        }), 201
         
     except Exception as e:
         db.session.rollback()
@@ -658,7 +657,7 @@ def create_tariff_rate():
 
 @app.route('/tariff-rates/<int:rate_id>', methods=['PUT'])
 def update_tariff_rate(rate_id):
-    """Update a specific tariff rate"""
+    """Update a specific tariff rate with enhanced validation"""
     try:
         tariff_rate = TariffRate.query.get(rate_id)
         if not tariff_rate:
@@ -666,7 +665,40 @@ def update_tariff_rate(rate_id):
         
         data = request.json
         
-        # Update fields
+        # Validate conflicts if critical fields are being updated
+        if any(field in data for field in ['start_date', 'end_date', 'goods_category', 'postal_service']):
+            update_data = data.copy()
+            update_data['id'] = rate_id
+            update_data['origin_country'] = data.get('origin_country', tariff_rate.origin_country)
+            update_data['destination_country'] = data.get('destination_country', tariff_rate.destination_country)
+            update_data['start_date'] = data.get('start_date', tariff_rate.start_date.isoformat() if tariff_rate.start_date else '')
+            update_data['end_date'] = data.get('end_date', tariff_rate.end_date.isoformat() if tariff_rate.end_date else '')
+            
+            validation_errors = tariff_calculator.validate_rate_conflicts(update_data)
+            if validation_errors:
+                return jsonify({
+                    'error': 'Validation failed',
+                    'details': validation_errors
+                }), 400
+        
+        # Parse dates if provided
+        if 'start_date' in data:
+            try:
+                tariff_rate.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+            except ValueError as e:
+                return jsonify({'error': f'Invalid start_date format: {str(e)}'}), 400
+                
+        if 'end_date' in data:
+            try:
+                tariff_rate.end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+            except ValueError as e:
+                return jsonify({'error': f'Invalid end_date format: {str(e)}'}), 400
+        
+        # Update enhanced fields
+        tariff_rate.goods_category = data.get('goods_category', tariff_rate.goods_category)
+        tariff_rate.postal_service = data.get('postal_service', tariff_rate.postal_service)
+        tariff_rate.min_weight = data.get('min_weight', tariff_rate.min_weight)
+        tariff_rate.max_weight = data.get('max_weight', tariff_rate.max_weight)
         tariff_rate.tariff_rate = data.get('tariff_rate', tariff_rate.tariff_rate)
         tariff_rate.minimum_tariff = data.get('minimum_tariff', tariff_rate.minimum_tariff)
         tariff_rate.maximum_tariff = data.get('maximum_tariff', tariff_rate.maximum_tariff)
@@ -680,7 +712,7 @@ def update_tariff_rate(rate_id):
         return jsonify({
             'message': 'Tariff rate updated successfully',
             'tariff_rate': tariff_rate.to_dict()
-        })
+        }), 200
         
     except Exception as e:
         db.session.rollback()
@@ -748,63 +780,216 @@ def get_tariff_system_defaults():
 
 @app.route('/calculate-tariff', methods=['POST'])
 def calculate_tariff():
-    """Calculate tariff for a given route and declared value"""
+    """Calculate tariff using enhanced criteria including goods category, postal service, and weight"""
     try:
         data = request.json
+        
         origin = data.get('origin_country')
         destination = data.get('destination_country')
         declared_value = float(data.get('declared_value', 0))
+        goods_category = data.get('goods_category', '*')
+        postal_service = data.get('postal_service', '*')
+        weight = float(data.get('weight')) if data.get('weight') else None
+        ship_date_str = data.get('ship_date')
         
         if not origin or not destination or declared_value <= 0:
-            return jsonify({'error': 'Valid origin, destination, and declared value are required'}), 400
+            return jsonify({'error': 'Origin, destination, and declared_value are required'}), 400
         
-        # Find tariff rate for this route
-        tariff_rate = TariffRate.query.filter_by(
-            origin_country=origin,
-            destination_country=destination,
-            is_active=True
-        ).first()
+        # Parse ship date
+        ship_date = None
+        if ship_date_str:
+            try:
+                ship_date = datetime.strptime(ship_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                ship_date = date.today()
+        else:
+            ship_date = date.today()
         
-        if not tariff_rate:
-            # Calculate suggested rate from historical data if available
-            historical_query = db.session.query(
-                func.sum(func.cast(ProcessedShipment.declared_value, db.Float)).label('total_declared_value'),
-                func.sum(func.cast(ProcessedShipment.tariff_amount, db.Float)).label('total_tariff_amount')
-            ).filter(
-                and_(
-                    ProcessedShipment.host_origin_station == origin,
-                    ProcessedShipment.host_destination_station == destination
-                )
-            ).first()
-            
-            suggested_rate = 0.0
-            suggested_tariff = 0.0
-            
-            if (historical_query.total_declared_value and 
-                historical_query.total_declared_value > 0 and 
-                historical_query.total_tariff_amount):
-                suggested_rate = historical_query.total_tariff_amount / historical_query.total_declared_value
-                suggested_tariff = declared_value * suggested_rate
+        # Use tariff calculator to find applicable rate
+        applicable_rate = tariff_calculator.find_applicable_rate(
+            origin=origin,
+            destination=destination,
+            goods_category=goods_category,
+            postal_service=postal_service,
+            ship_date=ship_date,
+            weight=weight
+        )
+        
+        if not applicable_rate:
+            # Calculate fallback tariff
+            fallback_tariff = tariff_calculator.calculate_fallback_tariff(
+                origin, destination, declared_value
+            )
             
             return jsonify({
-                'error': f'No tariff rate configured for route {origin} → {destination}',
-                'suggested_rate': round(suggested_rate, 4) if suggested_rate > 0 else None,
-                'suggested_tariff': round(suggested_tariff, 2) if suggested_tariff > 0 else None,
-                'message': 'Please configure a tariff rate for this route in the Tariff Management section'
-            }), 404
+                'status': 'fallback',
+                'origin_country': origin,
+                'destination_country': destination,
+                'declared_value': declared_value,
+                'goods_category': goods_category,
+                'postal_service': postal_service,
+                'weight': weight,
+                'ship_date': ship_date.isoformat() if ship_date else None,
+                'calculated_tariff': fallback_tariff,
+                'applied_rate': None,
+                'message': 'No configured rate found, used historical fallback calculation'
+            }), 200
         
-        calculated_tariff = tariff_rate.calculate_tariff(declared_value)
+        calculated_tariff = applicable_rate.calculate_tariff(declared_value, weight)
         
         return jsonify({
+            'status': 'success',
             'origin_country': origin,
             'destination_country': destination,
             'declared_value': declared_value,
-            'tariff_rate': tariff_rate.tariff_rate,
-            'minimum_tariff': tariff_rate.minimum_tariff,
-            'maximum_tariff': tariff_rate.maximum_tariff,
+            'goods_category': goods_category,
+            'postal_service': postal_service,
+            'weight': weight,
+            'ship_date': ship_date.isoformat() if ship_date else None,
             'calculated_tariff': calculated_tariff,
-            'currency': tariff_rate.currency
-        })
+            'applied_rate': applicable_rate.to_dict(),
+            'message': f'Applied rate with specificity score: {applicable_rate.specificity_score()}'
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-batch-process', methods=['POST'])
+def process_batch_tariffs():
+    """Process tariffs for multiple shipments using the enhanced tariff calculator"""
+    try:
+        data = request.json
+        shipment_ids = data.get('shipment_ids')  # Optional list of specific IDs
+        
+        # Use tariff calculator for batch processing
+        stats = tariff_calculator.process_batch_tariffs(shipment_ids)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Processed {stats["total_processed"]} shipments',
+            'statistics': stats
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-coverage-report', methods=['GET'])
+def get_tariff_coverage_report():
+    """Generate a comprehensive tariff rate coverage report"""
+    try:
+        report = tariff_calculator.get_rate_coverage_report()
+        
+        return jsonify({
+            'status': 'success',
+            'coverage_report': report
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates/search', methods=['POST'])
+def search_tariff_rates():
+    """Enhanced search for tariff rates with multiple criteria"""
+    try:
+        data = request.json
+        
+        query = TariffRate.query.filter_by(is_active=True)
+        
+        # Apply filters
+        if data.get('origin_country'):
+            query = query.filter(TariffRate.origin_country == data['origin_country'])
+        if data.get('destination_country'):
+            query = query.filter(TariffRate.destination_country == data['destination_country'])
+        if data.get('goods_category'):
+            query = query.filter(TariffRate.goods_category == data['goods_category'])
+        if data.get('postal_service'):
+            query = query.filter(TariffRate.postal_service == data['postal_service'])
+        
+        # Date range filter
+        if data.get('date'):
+            search_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+            query = query.filter(
+                and_(
+                    TariffRate.start_date <= search_date,
+                    TariffRate.end_date >= search_date
+                )
+            )
+        
+        # Weight range filter
+        if data.get('weight'):
+            weight = float(data['weight'])
+            query = query.filter(
+                and_(
+                    or_(TariffRate.min_weight.is_(None), TariffRate.min_weight <= weight),
+                    or_(TariffRate.max_weight.is_(None), TariffRate.max_weight >= weight)
+                )
+            )
+        
+        rates = query.all()
+        
+        # Sort by specificity (most specific first)
+        rates.sort(key=lambda r: r.specificity_score(), reverse=True)
+        
+        return jsonify({
+            'status': 'success',
+            'tariff_rates': [rate.to_dict() for rate in rates],
+            'total_found': len(rates)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-categories', methods=['GET'])
+def get_tariff_categories():
+    """Get available goods categories and postal services"""
+    try:
+        # Get unique categories from both configured rates and shipments
+        goods_categories = set()
+        postal_services = set()
+        
+        # From tariff rates
+        rates = TariffRate.query.filter_by(is_active=True).all()
+        for rate in rates:
+            if rate.goods_category and rate.goods_category != '*':
+                goods_categories.add(rate.goods_category)
+            if rate.postal_service and rate.postal_service != '*':
+                postal_services.add(rate.postal_service)
+        
+        # From processed shipments (auto-classified)
+        shipments_query = db.session.query(
+            ProcessedShipment.goods_category,
+            ProcessedShipment.postal_service
+        ).filter(
+            and_(
+                ProcessedShipment.goods_category.isnot(None),
+                ProcessedShipment.goods_category != '*',
+                ProcessedShipment.goods_category != ''
+            )
+        ).distinct().all()
+        
+        for shipment in shipments_query:
+            if shipment.goods_category:
+                goods_categories.add(shipment.goods_category)
+            if shipment.postal_service and shipment.postal_service != '*':
+                postal_services.add(shipment.postal_service)
+        
+        # Add common standard categories
+        standard_goods_categories = [
+            'Documents', 'Electronics', 'Clothing', 'Jewelry', 'Medicine', 'Merchandise'
+        ]
+        standard_postal_services = [
+            'EMS', 'E-packet', 'Registered Mail', 'Standard Post', 'Express'
+        ]
+        
+        goods_categories.update(standard_goods_categories)
+        postal_services.update(standard_postal_services)
+        
+        return jsonify({
+            'status': 'success',
+            'goods_categories': sorted(list(goods_categories)),
+            'postal_services': sorted(list(postal_services)),
+            'wildcards': ['*']  # Special wildcard option
+        }), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

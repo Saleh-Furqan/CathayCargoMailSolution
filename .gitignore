@@ -114,3 +114,9 @@ wheels/
 
 # Vite
 .vite/
+
+# Screenshots and temporary images
+Screenshot*.png
+*.png
+*.jpg
+*.jpeg
