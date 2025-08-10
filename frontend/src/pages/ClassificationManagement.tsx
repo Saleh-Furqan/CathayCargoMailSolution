@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Search, HelpCircle, Save, X, TestTube } from 'lucide-react';
-import { apiService } from '../services/api';
+import { Plus, Search, HelpCircle, Save, X, TestTube } from 'lucide-react';
 import { formatDisplayValue } from '../utils/displayHelpers';
 
 interface CategoryMapping {

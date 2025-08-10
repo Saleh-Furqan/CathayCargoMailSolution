@@ -6,10 +6,14 @@ This script helps set up database migrations properly for the Cathay Mail Soluti
 
 import os
 import sys
+
+# Add src directory to Python path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+
 from flask import Flask
 from flask_migrate import Migrate, init, migrate, upgrade, stamp
-from models import db
-from config import Config
+from models.database import db
+from config.settings import Config
 
 def setup_migrations():
     """Set up Flask-Migrate for the application"""

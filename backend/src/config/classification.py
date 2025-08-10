@@ -125,7 +125,7 @@ def get_category_mappings():
     """Get current category mappings for runtime use, including custom mappings from database"""
     try:
         # Try to get custom mappings from database
-        from models import SystemConfig
+        from models.database import SystemConfig
         import json
         
         custom_config = SystemConfig.get_config('custom_category_mappings', None, 'string')

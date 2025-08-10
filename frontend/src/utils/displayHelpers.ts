@@ -5,7 +5,7 @@
 /**
  * Convert backend wildcard values to user-friendly display text
  */
-export const formatDisplayValue = (value: string | null | undefined, context?: string): string => {
+export const formatDisplayValue = (value: string | null | undefined, _context?: string): string => {
   if (!value || value === '*' || value === 'All') {
     return 'All';
   }

@@ -7,10 +7,14 @@ Handles database migrations, dependency checks, and environment setup
 import os
 import sys
 import subprocess
+
+# Add src directory to Python path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+
 from flask import Flask
 from flask_migrate import Migrate, upgrade
-from models import db
-from config import Config
+from models.database import db
+from config.settings import Config
 
 def check_dependencies():
     """Check that all required dependencies are installed"""

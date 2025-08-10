@@ -1,0 +1,16 @@
+{
+    "include": [
+        "backend/src"
+    ],
+    "extraPaths": [
+        "backend/src"
+    ],
+    "exclude": [
+        "backend/venv",
+        "**/node_modules",
+        "**/__pycache__"
+    ],
+    "reportMissingImports": false,
+    "reportMissingModuleSource": false,
+    "pythonVersion": "3.8"
+}

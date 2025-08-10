@@ -231,12 +231,6 @@ class ApiService {
   }
 
   async updateTariffRate(rateId: number, tariffRateData: {
-    goods_category?: string;
-    postal_service?: string;
-    start_date?: string;
-    end_date?: string;
-    min_weight?: number;
-    max_weight?: number;
     tariff_rate?: number;
     minimum_tariff?: number;
     maximum_tariff?: number;

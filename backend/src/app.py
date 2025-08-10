@@ -1,23 +1,28 @@
+import os
+import sys
+
+# Add the src directory to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from flask_migrate import Migrate
 import pandas as pd
 import io
-import os
 from datetime import datetime, date
-from models import db, ProcessedShipment, TariffRate, SystemConfig
-from config import Config
+from models.database import db, ProcessedShipment, TariffRate, SystemConfig
+from config.settings import Config
 from sqlalchemy import func, and_, or_
-from data_processor import DataProcessor
+from services.data_processor import DataProcessor
 
 def _safe_float(value):
     """Safely convert value to float, return None if invalid"""
-    from data_converter import safe_float_conversion
+    from utils.data_converter import safe_float_conversion
     return safe_float_conversion(value)
 
 def _safe_int(value):
     """Safely convert value to int, return None if invalid"""
-    from data_converter import safe_int_conversion
+    from utils.data_converter import safe_int_conversion
     return safe_int_conversion(value)
 
 app = Flask(__name__)
@@ -35,7 +40,7 @@ with app.app_context():
 # IODA data file path (the preprocessed master data)
 import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-IODA_DATA_FILE = os.path.join(PROJECT_ROOT, "data processing", "master_cardit_inner_event_df(IODA DATA).xlsx")
+IODA_DATA_FILE = os.path.join(PROJECT_ROOT, "sample-data", "ioda", "master_cardit_inner_event_df(IODA DATA).xlsx")
 
 def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataFrame) -> tuple:
     """Save CHINAPOST export data to database with CBD export fields"""
@@ -182,8 +187,18 @@ def upload_cnp_file():
                 new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
                 db.session.commit()
                 print(f"Saved to database: {new_entries} new entries, {skipped_entries} duplicates skipped")
+                
+                # Calculate tariff method statistics
+                configured_count = 0
+                fallback_count = 0
+                if 'Tariff calculation method' in chinapost_df.columns:
+                    method_counts = chinapost_df['Tariff calculation method'].value_counts()
+                    configured_count = method_counts.get('configured', 0)
+                    fallback_count = method_counts.get('fallback', 0)
+                
             else:
                 new_entries, skipped_entries = 0, 0
+                configured_count, fallback_count = 0, 0
             
             return jsonify({
                 "success": True,
@@ -200,7 +215,13 @@ def upload_cnp_file():
                 },
                 "total_records": len(chinapost_df) if chinapost_df is not None else 0,
                 "new_entries": new_entries,
-                "skipped_duplicates": skipped_entries
+                "skipped_duplicates": skipped_entries,
+                "tariff_method_stats": {
+                    "configured_rates": configured_count,
+                    "fallback_rates": fallback_count,
+                    "configured_percentage": round((configured_count / (configured_count + fallback_count) * 100), 2) if (configured_count + fallback_count) > 0 else 0,
+                    "fallback_percentage": round((fallback_count / (configured_count + fallback_count) * 100), 2) if (configured_count + fallback_count) > 0 else 0
+                }
             })
             
         finally:
@@ -752,6 +773,25 @@ def create_tariff_rate():
                 'overlapping_rates': overlapping_info
             }), 400
         
+        # Check for overlapping rates (legacy check for backward compatibility)
+        overlapping_rates = TariffRate.check_overlapping_rates(
+            origin, destination, goods_category, postal_service, start_date, end_date
+        )
+        
+        if overlapping_rates:
+            overlapping_info = []
+            for rate in overlapping_rates:
+                overlapping_info.append({
+                    'id': rate.id,
+                    'start_date': rate.start_date.isoformat(),
+                    'end_date': rate.end_date.isoformat(),
+                    'rate': rate.tariff_rate
+                })
+            return jsonify({
+                'error': 'Date range overlaps with existing rates',
+                'overlapping_rates': overlapping_info
+            }), 400
+        
         # Check if rate already exists for this specific combination (including weight range)
         existing_rate = TariffRate.query.filter_by(
             origin_country=origin,
@@ -858,7 +898,7 @@ def update_tariff_rate(rate_id):
         if start_date >= end_date:
             return jsonify({'error': 'Start date must be before end date'}), 400
         
-        # Get weight range
+        # Get weight range values
         min_weight = data.get('min_weight', tariff_rate.min_weight)
         max_weight = data.get('max_weight', tariff_rate.max_weight)
         
@@ -883,30 +923,12 @@ def update_tariff_rate(rate_id):
                     'end_date': rate.end_date.isoformat(),
                     'min_weight': rate.min_weight,
                     'max_weight': rate.max_weight,
-                    'rate': rate.tariff_rate
+                    'tariff_rate': rate.tariff_rate
                 })
             return jsonify({
-                'error': 'Updated weight range would overlap with existing rates for the same date and route',
-                'overlapping_rates': overlapping_info
-            }), 400
-        
-        # Check for overlapping rates (excluding this rate) - legacy check for backward compatibility
-        overlapping_rates = TariffRate.check_overlapping_rates(
-            origin, destination, goods_category, postal_service, start_date, end_date, exclude_id=rate_id
-        )
-        
-        if overlapping_rates:
-            overlapping_info = []
-            for rate in overlapping_rates:
-                overlapping_info.append({
-                    'id': rate.id,
-                    'start_date': rate.start_date.isoformat(),
-                    'end_date': rate.end_date.isoformat(),
-                    'rate': rate.tariff_rate
-                })
-            return jsonify({
-                'error': 'Updated date range would overlap with existing rates',
-                'overlapping_rates': overlapping_info
+                'error': 'Updated weight and date ranges would overlap with existing rates',
+                'overlapping_rates': overlapping_info,
+                'message': 'Please adjust the weight range or date range to avoid conflicts with existing rates.'
             }), 400
         
         # Update all fields
@@ -1520,15 +1542,43 @@ def batch_recalculate_tariffs():
 def get_classification_config():
     """Get current classification configuration"""
     try:
-        from classification_config import get_category_mappings, get_service_patterns
+        from config.classification import get_category_mappings, get_service_patterns
+        
+        # Convert lambda functions to readable descriptions
+        service_pattern_descriptions = {
+            'EMS': [
+                'Tracking starts with "E" and contains "CN"',
+                'Contains "EMS" in tracking number',
+                'Starts with "EE" or "EP"',
+                'Starts with "CX" and has 13 characters (China EMS format)'
+            ],
+            'Registered Mail': [
+                'Tracking starts with "R" and contains "CN"',
+                'Tracking starts with "L" and contains "CN"',
+                'Contains "REG" in tracking number',
+                'Starts with "RR" or "RL"'
+            ],
+            'Air Mail': [
+                'Tracking starts with "C" and contains "CN"',
+                'Contains "AIR" in tracking number',
+                'Starts with "CP" or "CA"'
+            ],
+            'E-packet': [
+                'Tracking starts with "L" and has 13 characters',
+                'Contains "PACKET" in tracking number',
+                'Starts with "LP" or "LK"'
+            ],
+            'Surface Mail': [
+                'Tracking starts with "N" and contains "CN"',
+                'Contains "SURFACE" or "SEA" in tracking number',
+                'Starts with "NS" or "NM"'
+            ]
+        }
         
         return jsonify({
             'success': True,
             'category_mappings': get_category_mappings(),
-            'service_patterns': {
-                name: [str(pattern) for pattern in patterns] 
-                for name, patterns in get_service_patterns().items()
-            }
+            'service_patterns': service_pattern_descriptions
         })
     except Exception as e:
         return jsonify({
@@ -1540,7 +1590,7 @@ def get_classification_config():
 def get_classification_categories():
     """Get list of all available categories"""
     try:
-        from classification_config import get_category_mappings
+        from config.classification import get_category_mappings
         categories = list(get_category_mappings().keys())
         
         return jsonify({
@@ -1557,7 +1607,7 @@ def get_classification_categories():
 def get_category_keywords(category):
     """Get keywords for a specific category"""
     try:
-        from classification_config import get_category_mappings
+        from config.classification import get_category_mappings
         mappings = get_category_mappings()
         
         if category not in mappings:
@@ -1591,7 +1641,7 @@ def add_category_keywords(category):
             }), 400
         
         # Store the updated mapping in SystemConfig
-        from classification_config import get_category_mappings
+        from config.classification import get_category_mappings
         current_mappings = get_category_mappings()
         
         if category not in current_mappings:
@@ -1636,7 +1686,7 @@ def remove_category_keywords(category):
                 'error': 'Keywords must be provided as a list'
             }), 400
         
-        from classification_config import get_category_mappings
+        from config.classification import get_category_mappings
         current_mappings = get_category_mappings()
         
         if category not in current_mappings:
@@ -1721,7 +1771,7 @@ def test_classification():
 def get_classification_services():
     """Get list of all available postal services"""
     try:
-        from classification_config import get_service_patterns
+        from config.classification import get_service_patterns
         services = list(get_service_patterns().keys())
         
         return jsonify({
@@ -1738,7 +1788,7 @@ def get_classification_services():
 def get_service_patterns_api(service):
     """Get patterns for a specific postal service"""
     try:
-        from classification_config import get_service_patterns
+        from config.classification import get_service_patterns
         patterns = get_service_patterns()
         
         if service not in patterns:
@@ -1780,7 +1830,7 @@ def add_service_patterns(service):
             }), 400
         
         # Store the updated patterns in SystemConfig
-        from classification_config import get_service_patterns
+        from config.classification import get_service_patterns
         import json
         
         current_patterns = get_service_patterns()

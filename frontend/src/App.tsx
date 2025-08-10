@@ -10,7 +10,6 @@ function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<DataIngestionSimple />} />
-        <Route path="/data-processing" element={<DataIngestionSimple />} />
         <Route path="/historical-data" element={<HistoricalData />} />
         <Route path="/tariff-management" element={<TariffManagement />} />
         <Route path="/classification-management" element={<ClassificationManagement />} />

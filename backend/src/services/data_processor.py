@@ -378,7 +378,7 @@ class DataProcessor:
             print("Calculating tariffs using enhanced tariff system...")
             
             # Import here to avoid circular imports
-            from models import TariffRate
+            from models.database import TariffRate
             from datetime import datetime, date
             
             results = {
@@ -427,7 +427,7 @@ class DataProcessor:
                     results['categories'].append(category)
                     results['services'].append(service)
                     # Import here to avoid circular imports
-                    from models import SystemConfig
+                    from models.database import SystemConfig
                     fallback_rate = SystemConfig.get_fallback_rate()
                     results['rates_used'].append(
                         tariff_result['rate_used'].tariff_rate if tariff_result['rate_used'] else fallback_rate
@@ -459,7 +459,7 @@ class DataProcessor:
             
             # Return default values in case of error
             row_count = len(merged_df)
-            from models import SystemConfig
+            from models.database import SystemConfig
             return {
                 'tariff_amounts': [0] * row_count,
                 'categories': ['Unknown'] * row_count,
@@ -485,7 +485,7 @@ class DataProcessor:
         content_lower = str(declared_content).lower().strip()
         
         # Use configurable category mappings
-        from classification_config import get_category_mappings
+        from config.classification import get_category_mappings
         category_mappings = get_category_mappings()
         
         # Check each category for keyword matches
@@ -517,7 +517,7 @@ class DataProcessor:
             declared_value = 0
         
         # Use configurable service patterns
-        from classification_config import get_service_patterns
+        from config.classification import get_service_patterns
         service_patterns = get_service_patterns()
         
         # Check tracking number patterns

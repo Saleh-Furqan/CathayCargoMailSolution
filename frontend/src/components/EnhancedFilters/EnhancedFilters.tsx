@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Filter, X, HelpCircle } from 'lucide-react';
 import { apiService } from '../../services/api';
-import { formatDisplayValue, getFieldExplanation, createTooltipProps } from '../../utils/displayHelpers';
+import { formatDisplayValue, getFieldExplanation } from '../../utils/displayHelpers';
 
 interface EnhancedFiltersProps {
   onFiltersChange: (filters: FilterValues) => void;
@@ -120,11 +120,12 @@ const EnhancedFilters: React.FC<EnhancedFiltersProps> = ({
                 <label className="block text-sm font-medium text-gray-700">
                   Goods Category
                 </label>
-                <HelpCircle 
-                  className="h-3 w-3 text-gray-400 cathay-tooltip-trigger cursor-help" 
-                  {...createTooltipProps(getFieldExplanation('goods_category', formatDisplayValue(filters.goodsCategory)))}
+                <span 
                   title={getFieldExplanation('goods_category', formatDisplayValue(filters.goodsCategory))}
-                />
+                  data-tooltip={getFieldExplanation('goods_category', formatDisplayValue(filters.goodsCategory))}
+                >
+                  <HelpCircle className="h-3 w-3 text-gray-400 cathay-tooltip-trigger cursor-help" />
+                </span>
               </div>
               <select
                 value={filters.goodsCategory || '*'}
@@ -144,11 +145,12 @@ const EnhancedFilters: React.FC<EnhancedFiltersProps> = ({
                 <label className="block text-sm font-medium text-gray-700">
                   Postal Service
                 </label>
-                <HelpCircle 
-                  className="h-3 w-3 text-gray-400 cathay-tooltip-trigger cursor-help" 
-                  {...createTooltipProps(getFieldExplanation('postal_service', formatDisplayValue(filters.postalService)))}
+                <span 
                   title={getFieldExplanation('postal_service', formatDisplayValue(filters.postalService))}
-                />
+                  data-tooltip={getFieldExplanation('postal_service', formatDisplayValue(filters.postalService))}
+                >
+                  <HelpCircle className="h-3 w-3 text-gray-400 cathay-tooltip-trigger cursor-help" />
+                </span>
               </div>
               <select
                 value={filters.postalService || '*'}
@@ -168,11 +170,12 @@ const EnhancedFilters: React.FC<EnhancedFiltersProps> = ({
                 <label className="block text-sm font-medium text-gray-700">
                   Calculation Method
                 </label>
-                <HelpCircle 
-                  className="h-3 w-3 text-gray-400 cathay-tooltip-trigger cursor-help" 
-                  {...createTooltipProps(getFieldExplanation('tariff_calculation'))}
+                <span 
                   title={getFieldExplanation('tariff_calculation')}
-                />
+                  data-tooltip={getFieldExplanation('tariff_calculation')}
+                >
+                  <HelpCircle className="h-3 w-3 text-gray-400 cathay-tooltip-trigger cursor-help" />
+                </span>
               </div>
               <select
                 value={filters.calculationMethod || 'all'}

@@ -166,7 +166,7 @@ cd CathayCargoMailSolution
 
 2. **Backend Setup**
 ```bash
-cd backend/backend
+cd backend
 
 # Create and activate virtual environment
 python3 -m venv venv
@@ -181,7 +181,7 @@ python setup_migrations.py
 
 3. **Frontend Setup**
 ```bash
-cd ../../frontend
+cd ../frontend
 
 # Install Node.js dependencies
 npm install
@@ -196,14 +196,14 @@ Run both servers for development with hot-reloading:
 
 #### Backend Server (Port 5001)
 ```bash
-cd backend/backend
+cd backend
 source venv/bin/activate  # Activate virtual environment
-python app.py
+python src/app.py
 ```
 - API available at: `http://localhost:5001`
 - Debug mode enabled with auto-reload
-- SQLite database: `shipments.db`
-- Logs: Console output and `app.log`
+- SQLite database: `backend/data/shipments.db`
+- Logs: Console output and `backend/data/app.log`
 
 #### Frontend Server (Port 5173)
 ```bash
@@ -221,9 +221,9 @@ The fastest way to get the application running for demonstration:
 
 ```bash
 # 1. Backend Setup (Terminal 1)
-cd backend/backend
+cd backend
 source venv/bin/activate
-python app.py
+python src/app.py
 
 # 2. Frontend Setup (Terminal 2)  
 cd frontend
@@ -251,16 +251,17 @@ For production deployment:
 
 ### 2. Navigation Structure
 ```
-📊 Analytics Dashboard (/)
-├── Business insights and KPI metrics
-├── Shipment volume and value trends  
-└── Rate utilization statistics
-
-📤 Data Processing (/data-processing)  
+📤 Data Processing (/)  
 ├── CNP file upload and processing
 ├── Pre-merged IODA data integration
 ├── Automated tariff calculation
+├── Business insights and analytics dashboard
 └── Fallback rate usage summary
+
+📊 Historical Data (/historical-data)
+├── Shipment history and search
+├── Data export capabilities
+└── Historical analytics
 
 ⚙️  Tariff Management (/tariff-management)
 ├── Multi-dimensional rate configuration
@@ -484,71 +485,74 @@ npm run type-check  # Run TypeScript compiler checks
 
 #### Backend Commands  
 ```bash
-# Development
-python app.py                    # Start Flask dev server (auto-reload)
-python setup_migrations.py      # Initialize database migrations
-python deploy.py                 # Run production deployment checks
+# Development (run from backend/ directory)
+python src/app.py               # Start Flask dev server (auto-reload)
+python setup_migrations.py     # Initialize database migrations
+python deploy.py                # Run production deployment checks
 
 # Database Management
-flask db init                    # Initialize migrations (one-time)
-flask db migrate -m "message"    # Create new migration
-flask db upgrade                 # Apply pending migrations
-flask db downgrade               # Rollback last migration
+flask db init                   # Initialize migrations (one-time)
+flask db migrate -m "message"   # Create new migration
+flask db upgrade                # Apply pending migrations
+flask db downgrade              # Rollback last migration
 
 # Production
-gunicorn -w 4 -b 0.0.0.0:5001 app:app  # WSGI production server
+gunicorn -w 4 -b 0.0.0.0:5001 src.app:app  # WSGI production server
 ```
 
 ### 📁 Project Structure
 
 ```
 CathayCargoMailSolution/
-├── 🖥️ frontend/                    # React SPA (TypeScript + Vite)
+├── 📚 docs/                          # Documentation & screenshots
+│   └── screenshots/                 # Application screenshots
+│
+├── 🖥️ frontend/                      # React SPA (TypeScript + Vite)
 │   ├── src/
-│   │   ├── components/            # Reusable UI components
-│   │   │   ├── Layout/           # App shell and navigation
-│   │   │   └── Dashboard/        # Analytics components  
-│   │   ├── pages/                # Route-level components
-│   │   │   ├── DataIngestionSimple.tsx     # File upload and processing
-│   │   │   ├── TariffManagement.tsx        # Rate configuration
+│   │   ├── components/              # Reusable UI components
+│   │   │   ├── Layout/             # App shell and navigation
+│   │   │   └── Dashboard/          # Analytics components  
+│   │   ├── pages/                  # Route-level components
+│   │   │   ├── DataIngestionSimple.tsx      # File upload and processing
+│   │   │   ├── TariffManagement.tsx         # Rate configuration
 │   │   │   ├── ClassificationManagement.tsx # Category/service management
-│   │   │   └── HistoricalData.tsx          # Historical analytics
-│   │   ├── services/             # API integration layer
-│   │   │   └── api.ts           # HTTP client and endpoints
-│   │   └── types/               # TypeScript definitions
-│   ├── public/                   # Static assets
-│   └── package.json             # Dependencies and scripts
+│   │   │   └── HistoricalData.tsx           # Historical analytics
+│   │   ├── services/               # API integration layer
+│   │   │   └── api.ts             # HTTP client and endpoints
+│   │   └── types/                 # TypeScript definitions
+│   ├── public/                     # Static assets (logos, icons)
+│   └── package.json               # Dependencies and scripts
 │
-├── ⚙️ backend/backend/             # Flask API (Python)
-│   ├── 📊 Core Application
-│   │   ├── app.py               # Main Flask app with all endpoints
-│   │   ├── models.py            # SQLAlchemy database models
-│   │   ├── config.py            # Application configuration
-│   │   └── data_processor.py    # CNP data processing pipeline
-│   │
-│   ├── 🗄️ Database & Migrations  
-│   │   ├── migrations/          # Alembic database migrations
-│   │   ├── setup_migrations.py  # Migration initialization utility
-│   │   └── shipments.db         # SQLite database file
-│   │
-│   ├── 🔧 Configuration & Deployment
-│   │   ├── classification_config.py  # Configurable category mappings
-│   │   ├── deploy.py                 # Production deployment script
-│   │   ├── requirements.txt          # Python dependencies
-│   │   └── venv/                     # Virtual environment
-│   │
-│   └── 📄 Templates & Data
-│       ├── templates/           # Excel template files
-│       │   ├── CBP transported package worksheet file template.xlsx
-│       │   └── China Post data source file template.xlsx
-│       └── Sample Data.xlsx     # Example CNP data file
+├── ⚙️ backend/                       # Flask API (Python)
+│   ├── src/                        # Organized source code
+│   │   ├── app.py                 # Main Flask application
+│   │   ├── config/                # Configuration files
+│   │   │   ├── settings.py        # App configuration
+│   │   │   └── classification.py  # Classification mappings
+│   │   ├── models/                # Database models
+│   │   │   └── database.py        # SQLAlchemy models
+│   │   ├── services/              # Business logic
+│   │   │   └── data_processor.py  # CNP data processing
+│   │   └── utils/                 # Utility functions
+│   │       └── helpers.py         # Common utilities
+│   ├── migrations/                 # Alembic database migrations
+│   ├── templates/                  # Excel templates
+│   ├── data/                      # Data files & database
+│   │   ├── shipments.db           # SQLite database
+│   │   └── *.log                 # Application logs
+│   ├── tests/                     # Test files (future)
+│   ├── requirements.txt           # Python dependencies
+│   ├── setup_migrations.py        # Database setup
+│   ├── deploy.py                  # Deployment script
+│   └── venv/                      # Virtual environment
 │
-└── 📚 Documentation & Analysis
-    ├── data processing/         # Jupyter notebooks for data analysis  
-    │   ├── script_v4.ipynb     # Original processing workflow
-    │   └── master_cardit_inner_event_df.xlsx  # IODA reference data
-    ├── ENHANCED_TARIFF_IMPLEMENTATION.md      # Technical specification
-    └── README.md               # This comprehensive guide
+├── 📊 sample-data/                   # Sample data and analysis
+│   ├── ioda/                      # IODA reference data files
+│   ├── cnp/                       # CNP sample files
+│   └── notebooks/                 # Jupyter analysis notebooks
+│
+├── README.md                        # This comprehensive guide
+└── ENHANCED_TARIFF_IMPLEMENTATION.md # Technical specification
 ```
 
 ### 🔧 Configuration Management
@@ -556,7 +560,7 @@ CathayCargoMailSolution/
 #### Environment Variables (.env file)
 ```bash
 # Database Configuration
-DATABASE_URL=sqlite:///shipments.db
+DATABASE_URL=sqlite:///backend/data/shipments.db
 FLASK_ENV=development  # or 'production'
 
 # CORS Settings  

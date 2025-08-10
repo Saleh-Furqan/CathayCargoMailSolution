@@ -4,10 +4,15 @@ Database migration script for enhanced tariff system
 Run this to update your existing database with new tariff fields
 """
 
-from app import app
-from models import db, TariffRate, ProcessedShipment
-from datetime import date
+import os
 import sys
+
+# Add src directory to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app import app
+from models.database import db, TariffRate, ProcessedShipment
+from datetime import date
 
 def migrate_database():
     """Migrate database to support enhanced tariff system"""
