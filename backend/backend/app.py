@@ -5,28 +5,20 @@ import pandas as pd
 import io
 import os
 from datetime import datetime, date
-from models import db, ProcessedShipment, TariffRate
+from models import db, ProcessedShipment, TariffRate, SystemConfig
 from config import Config
 from sqlalchemy import func, and_, or_
 from data_processor import DataProcessor
 
 def _safe_float(value):
     """Safely convert value to float, return None if invalid"""
-    if value is None or pd.isna(value):
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
+    from data_converter import safe_float_conversion
+    return safe_float_conversion(value)
 
 def _safe_int(value):
     """Safely convert value to int, return None if invalid"""
-    if value is None or pd.isna(value):
-        return None
-    try:
-        return int(float(value))  # Convert to float first to handle string decimals
-    except (ValueError, TypeError):
-        return None
+    from data_converter import safe_int_conversion
+    return safe_int_conversion(value)
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -123,6 +115,7 @@ def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataF
             postal_service=str(row.get('Postal service type', '')),
             tariff_rate_used=row.get('Tariff rate used') if pd.notnull(row.get('Tariff rate used')) else None,
             tariff_calculation_method=str(row.get('Tariff calculation method', '')),
+            shipment_date=row.get('Shipment date') if pd.notnull(row.get('Shipment date')) else None,
             
             # CBD export derived fields
             carrier_code=cbd_data.get('carrier_code', ''),
@@ -728,7 +721,38 @@ def create_tariff_rate():
         if start_date >= end_date:
             return jsonify({'error': 'Start date must be before end date'}), 400
         
-        # Check for overlapping rates
+        # Get weight range
+        min_weight = data.get('min_weight', 0.0)
+        max_weight = data.get('max_weight', 999999.0)
+        
+        # Validate weight range
+        if min_weight < 0 or max_weight < 0:
+            return jsonify({'error': 'Weight values cannot be negative'}), 400
+        if min_weight > max_weight:
+            return jsonify({'error': 'Minimum weight cannot be greater than maximum weight'}), 400
+        
+        # Check for overlapping weight ranges
+        overlapping_weight_rates = TariffRate.check_weight_range_overlap(
+            origin, destination, goods_category, postal_service, start_date, end_date, min_weight, max_weight
+        )
+        
+        if overlapping_weight_rates:
+            overlapping_info = []
+            for rate in overlapping_weight_rates:
+                overlapping_info.append({
+                    'id': rate.id,
+                    'start_date': rate.start_date.isoformat(),
+                    'end_date': rate.end_date.isoformat(),
+                    'min_weight': rate.min_weight,
+                    'max_weight': rate.max_weight,
+                    'rate': rate.tariff_rate
+                })
+            return jsonify({
+                'error': 'Weight range overlaps with existing rates for the same date and route',
+                'overlapping_rates': overlapping_info
+            }), 400
+        
+        # Check for overlapping rates (legacy check for backward compatibility)
         overlapping_rates = TariffRate.check_overlapping_rates(
             origin, destination, goods_category, postal_service, start_date, end_date
         )
@@ -762,6 +786,8 @@ def create_tariff_rate():
             existing_rate.tariff_rate = data.get('tariff_rate', existing_rate.tariff_rate)
             existing_rate.minimum_tariff = data.get('minimum_tariff', existing_rate.minimum_tariff)
             existing_rate.maximum_tariff = data.get('maximum_tariff', existing_rate.maximum_tariff)
+            existing_rate.min_weight = data.get('min_weight', existing_rate.min_weight)
+            existing_rate.max_weight = data.get('max_weight', existing_rate.max_weight)
             existing_rate.currency = data.get('currency', existing_rate.currency)
             existing_rate.is_active = data.get('is_active', existing_rate.is_active)
             existing_rate.notes = data.get('notes', existing_rate.notes)
@@ -787,6 +813,8 @@ def create_tariff_rate():
                 postal_service=postal_service,
                 start_date=start_date,
                 end_date=end_date,
+                min_weight=min_weight,
+                max_weight=max_weight,
                 tariff_rate=tariff_rate,
                 minimum_tariff=data.get('minimum_tariff', 0.0),
                 maximum_tariff=data.get('maximum_tariff'),
@@ -938,7 +966,7 @@ def get_tariff_system_defaults():
         
         return jsonify({
             'system_defaults': {
-                'default_tariff_rate': round(system_average_rate, 4) if system_average_rate > 0 else 0.8,
+                'default_tariff_rate': round(system_average_rate, 4) if system_average_rate > 0 else SystemConfig.get_fallback_rate(),
                 'default_minimum_tariff': max(0.0, round(min_tariff_query, 2)),
                 'suggested_maximum_tariff': round(max_tariff_query * 1.2, 2),  # 20% buffer above highest historical
                 'default_currency': 'USD'
@@ -1033,7 +1061,7 @@ def calculate_tariff():
                 'declared_value': declared_value,
                 'calculated_tariff': result['tariff_amount'],
                 'calculation_method': 'fallback',
-                'fallback_rate': 0.8,
+                'fallback_rate': SystemConfig.get_fallback_rate(),
                 'historical_rate': round(suggested_rate, 4) if suggested_rate > 0 else None,
                 'message': 'No configured rate found, used fallback calculation (80%)',
                 'suggestion': 'Configure a specific tariff rate for this route/category/service combination'
@@ -1395,9 +1423,28 @@ def batch_recalculate_tariffs():
                 declared_value = _safe_float(shipment.declared_value) or 0
                 bag_weight = _safe_float(shipment.bag_weight) or 0
                 
-                # Use current classification or derive new one
-                goods_category = shipment.declared_content_category or '*'
-                postal_service = shipment.postal_service or '*'
+                # Retroactively re-derive classification from raw data
+                from data_processor import DataProcessor
+                processor = DataProcessor()
+                
+                # Re-derive goods category from declared content
+                if shipment.declared_content:
+                    goods_category = processor._derive_goods_category(shipment.declared_content)
+                else:
+                    goods_category = shipment.goods_category or '*'
+                
+                # Re-derive postal service from tracking number
+                if shipment.tracking_number:
+                    # Create a mock row for postal service derivation
+                    mock_row = {
+                        'Tracking Number': shipment.tracking_number,
+                        'Sender Name': getattr(shipment, 'sender_name', ''),
+                        'Receiver Name': getattr(shipment, 'receiver_name', ''),
+                        'Content': shipment.declared_content or ''
+                    }
+                    postal_service = processor._derive_postal_service(mock_row)
+                else:
+                    postal_service = shipment.postal_service or '*'
                 
                 # Parse ship date
                 ship_date = None
@@ -1415,15 +1462,20 @@ def batch_recalculate_tariffs():
                         origin, destination, declared_value, goods_category, postal_service, ship_date, bag_weight
                     )
                     
-                    # Update shipment with new tariff calculation
+                    # Update shipment with new tariff calculation and classifications
                     shipment.tariff_amount = round(tariff_result['tariff_amount'], 2)
                     shipment.tariff_calculation_method = 'configured' if not tariff_result['fallback_used'] else 'fallback'
+                    
+                    # Update retroactively derived classifications
+                    shipment.goods_category = goods_category
+                    shipment.postal_service = postal_service
+                    shipment.shipment_date = ship_date
                     
                     # Update rate used
                     if tariff_result['rate_used']:
                         shipment.tariff_rate_used = tariff_result['rate_used'].tariff_rate
                     else:
-                        shipment.tariff_rate_used = 0.8  # fallback rate
+                        shipment.tariff_rate_used = SystemConfig.get_fallback_rate()  # dynamic fallback rate
                     
                     updated_count += 1
                 
@@ -1447,6 +1499,390 @@ def batch_recalculate_tariffs():
         return jsonify({
             'success': False,
             'error': f'Batch recalculation failed: {str(e)}'
+        }), 500
+
+@app.route('/classification-config', methods=['GET'])
+def get_classification_config():
+    """Get current classification configuration"""
+    try:
+        from classification_config import get_category_mappings, get_service_patterns
+        
+        return jsonify({
+            'success': True,
+            'category_mappings': get_category_mappings(),
+            'service_patterns': {
+                name: [str(pattern) for pattern in patterns] 
+                for name, patterns in get_service_patterns().items()
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-categories', methods=['GET'])
+def get_classification_categories():
+    """Get list of all available categories"""
+    try:
+        from classification_config import get_category_mappings
+        categories = list(get_category_mappings().keys())
+        
+        return jsonify({
+            'success': True,
+            'categories': categories
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-categories/<category>', methods=['GET'])
+def get_category_keywords(category):
+    """Get keywords for a specific category"""
+    try:
+        from classification_config import get_category_mappings
+        mappings = get_category_mappings()
+        
+        if category not in mappings:
+            return jsonify({
+                'success': False,
+                'error': f'Category "{category}" not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'category': category,
+            'keywords': mappings[category]
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-categories/<category>/keywords', methods=['POST'])
+def add_category_keywords(category):
+    """Add keywords to a category"""
+    try:
+        data = request.json
+        new_keywords = data.get('keywords', [])
+        
+        if not isinstance(new_keywords, list):
+            return jsonify({
+                'success': False,
+                'error': 'Keywords must be provided as a list'
+            }), 400
+        
+        # Store the updated mapping in SystemConfig
+        from classification_config import get_category_mappings
+        current_mappings = get_category_mappings()
+        
+        if category not in current_mappings:
+            current_mappings[category] = []
+        
+        # Add new keywords (avoid duplicates)
+        for keyword in new_keywords:
+            if keyword and keyword not in current_mappings[category]:
+                current_mappings[category].append(keyword.lower().strip())
+        
+        # Save updated mappings to database
+        import json
+        SystemConfig.set_config(
+            'custom_category_mappings', 
+            json.dumps(current_mappings),
+            'string',
+            'Custom category mappings for goods classification'
+        )
+        
+        return jsonify({
+            'success': True,
+            'category': category,
+            'updated_keywords': current_mappings[category],
+            'message': f'Added {len(new_keywords)} keywords to category "{category}"'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-categories/<category>/keywords', methods=['DELETE'])
+def remove_category_keywords(category):
+    """Remove keywords from a category"""
+    try:
+        data = request.json
+        keywords_to_remove = data.get('keywords', [])
+        
+        if not isinstance(keywords_to_remove, list):
+            return jsonify({
+                'success': False,
+                'error': 'Keywords must be provided as a list'
+            }), 400
+        
+        from classification_config import get_category_mappings
+        current_mappings = get_category_mappings()
+        
+        if category not in current_mappings:
+            return jsonify({
+                'success': False,
+                'error': f'Category "{category}" not found'
+            }), 404
+        
+        # Remove keywords
+        for keyword in keywords_to_remove:
+            if keyword in current_mappings[category]:
+                current_mappings[category].remove(keyword)
+        
+        # Save updated mappings
+        import json
+        SystemConfig.set_config(
+            'custom_category_mappings',
+            json.dumps(current_mappings),
+            'string',
+            'Custom category mappings for goods classification'
+        )
+        
+        return jsonify({
+            'success': True,
+            'category': category,
+            'updated_keywords': current_mappings[category],
+            'message': f'Removed keywords from category "{category}"'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/classification-test', methods=['POST'])
+def test_classification():
+    """Test classification for a given content description"""
+    try:
+        data = request.json
+        content = data.get('content', '')
+        
+        if not content:
+            return jsonify({
+                'success': False,
+                'error': 'Content description is required'
+            }), 400
+        
+        # Use the data processor to derive category
+        processor = DataProcessor()
+        derived_category = processor._derive_goods_category(content)
+        
+        # Also test service derivation if tracking number provided
+        service_result = None
+        if 'tracking_number' in data:
+            mock_row = {
+                'Tracking Number': data['tracking_number'],
+                'Content': content,
+                'Sender Name': data.get('sender_name', ''),
+                'Receiver Name': data.get('receiver_name', '')
+            }
+            service_result = processor._derive_postal_service(mock_row)
+        
+        result = {
+            'success': True,
+            'content': content,
+            'derived_category': derived_category,
+        }
+        
+        if service_result:
+            result['derived_service'] = service_result
+            result['tracking_number'] = data['tracking_number']
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/tariff-rates/inactive', methods=['GET'])
+def get_inactive_rates():
+    """Get all inactive tariff rates"""
+    try:
+        inactive_rates = TariffRate.query.filter_by(is_active=False).all()
+        
+        return jsonify({
+            'success': True,
+            'inactive_rates': [rate.to_dict() for rate in inactive_rates],
+            'count': len(inactive_rates)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/tariff-rates/<int:rate_id>/deactivate', methods=['POST'])
+def deactivate_rate(rate_id):
+    """Deactivate a tariff rate"""
+    try:
+        rate = TariffRate.query.get(rate_id)
+        if not rate:
+            return jsonify({
+                'success': False,
+                'error': 'Tariff rate not found'
+            }), 404
+        
+        data = request.json or {}
+        deactivation_reason = data.get('reason', 'Manual deactivation')
+        
+        rate.is_active = False
+        rate.notes = f"{rate.notes or ''}\n[DEACTIVATED] {deactivation_reason}".strip()
+        rate.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Tariff rate {rate_id} has been deactivated',
+            'rate': rate.to_dict()
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/tariff-rates/<int:rate_id>/reactivate', methods=['POST'])
+def reactivate_rate(rate_id):
+    """Reactivate a tariff rate"""
+    try:
+        rate = TariffRate.query.get(rate_id)
+        if not rate:
+            return jsonify({
+                'success': False,
+                'error': 'Tariff rate not found'
+            }), 404
+        
+        data = request.json or {}
+        reactivation_reason = data.get('reason', 'Manual reactivation')
+        
+        # Check for overlaps before reactivating
+        overlapping_rates = TariffRate.check_weight_range_overlap(
+            rate.origin_country, rate.destination_country, 
+            rate.goods_category, rate.postal_service,
+            rate.start_date, rate.end_date,
+            rate.min_weight, rate.max_weight,
+            exclude_id=rate.id
+        )
+        
+        if overlapping_rates:
+            return jsonify({
+                'success': False,
+                'error': 'Cannot reactivate: would overlap with existing active rates',
+                'overlapping_rates': [r.to_dict() for r in overlapping_rates]
+            }), 400
+        
+        rate.is_active = True
+        rate.notes = f"{rate.notes or ''}\n[REACTIVATED] {reactivation_reason}".strip()
+        rate.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Tariff rate {rate_id} has been reactivated',
+            'rate': rate.to_dict()
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/tariff-rates/<int:rate_id>/archive', methods=['DELETE'])
+def archive_rate(rate_id):
+    """Permanently archive (delete) a tariff rate"""
+    try:
+        rate = TariffRate.query.get(rate_id)
+        if not rate:
+            return jsonify({
+                'success': False,
+                'error': 'Tariff rate not found'
+            }), 404
+        
+        data = request.json or {}
+        archive_reason = data.get('reason', 'Manual archival')
+        
+        # Store some info before deletion for response
+        rate_info = rate.to_dict()
+        
+        # Check if rate is being used in processed shipments
+        usage_count = ProcessedShipment.query.filter_by(tariff_rate_used=rate.tariff_rate).count()
+        
+        if usage_count > 0:
+            return jsonify({
+                'success': False,
+                'error': f'Cannot archive: rate is referenced by {usage_count} processed shipments. Consider deactivating instead.',
+                'usage_count': usage_count
+            }), 400
+        
+        db.session.delete(rate)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Tariff rate {rate_id} has been permanently archived',
+            'archived_rate': rate_info,
+            'reason': archive_reason
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/tariff-rates/bulk-deactivate', methods=['POST'])
+def bulk_deactivate_rates():
+    """Bulk deactivate multiple tariff rates"""
+    try:
+        data = request.json
+        rate_ids = data.get('rate_ids', [])
+        reason = data.get('reason', 'Bulk deactivation')
+        
+        if not isinstance(rate_ids, list) or not rate_ids:
+            return jsonify({
+                'success': False,
+                'error': 'rate_ids must be provided as a non-empty list'
+            }), 400
+        
+        rates = TariffRate.query.filter(TariffRate.id.in_(rate_ids)).all()
+        
+        if len(rates) != len(rate_ids):
+            return jsonify({
+                'success': False,
+                'error': 'Some rate IDs were not found'
+            }), 404
+        
+        updated_count = 0
+        for rate in rates:
+            if rate.is_active:
+                rate.is_active = False
+                rate.notes = f"{rate.notes or ''}\n[BULK DEACTIVATED] {reason}".strip()
+                rate.updated_at = datetime.utcnow()
+                updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Bulk deactivated {updated_count} tariff rates',
+            'updated_count': updated_count,
+            'total_processed': len(rates)
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 if __name__ == '__main__':

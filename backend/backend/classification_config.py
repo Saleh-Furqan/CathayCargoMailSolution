@@ -127,3 +127,34 @@ def remove_category(category: str):
     """Remove an entire category"""
     if category in CATEGORY_MAPPINGS:
         del CATEGORY_MAPPINGS[category]
+
+def get_category_mappings():
+    """Get current category mappings for runtime use, including custom mappings from database"""
+    try:
+        # Try to get custom mappings from database
+        from models import SystemConfig
+        import json
+        
+        custom_config = SystemConfig.get_config('custom_category_mappings', None, 'string')
+        if custom_config:
+            custom_mappings = json.loads(custom_config)
+            # Merge with default mappings, giving priority to custom ones
+            merged_mappings = CATEGORY_MAPPINGS.copy()
+            for category, keywords in custom_mappings.items():
+                if category in merged_mappings:
+                    # Merge keywords, avoiding duplicates
+                    merged_keywords = list(set(merged_mappings[category] + keywords))
+                    merged_mappings[category] = merged_keywords
+                else:
+                    # New category from custom config
+                    merged_mappings[category] = keywords
+            return merged_mappings
+    except Exception as e:
+        # Fall back to default mappings if database access fails
+        print(f"Warning: Could not load custom category mappings: {e}")
+    
+    return CATEGORY_MAPPINGS
+
+def get_service_patterns():
+    """Get current service patterns for runtime use"""
+    return SERVICE_PATTERNS

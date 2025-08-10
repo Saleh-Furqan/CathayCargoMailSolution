@@ -184,6 +184,7 @@ class DataProcessor:
             cx_inner_cnp_df['Postal service type'] = tariff_results['services']
             cx_inner_cnp_df['Tariff rate used'] = tariff_results['rates_used']
             cx_inner_cnp_df['Tariff calculation method'] = tariff_results['methods']
+            cx_inner_cnp_df['Shipment date'] = tariff_results['shipment_dates']
             
             # First column increasing number (unnamed column)
             cx_inner_cnp_df[''] = range(1, len(cx_inner_cnp_df) + 1)
@@ -385,7 +386,8 @@ class DataProcessor:
                 'categories': [],
                 'services': [],
                 'rates_used': [],
-                'methods': []
+                'methods': [],
+                'shipment_dates': []
             }
             
             for _, row in merged_df.iterrows():
@@ -424,12 +426,16 @@ class DataProcessor:
                     results['tariff_amounts'].append(round(tariff_result['tariff_amount'], 2))
                     results['categories'].append(category)
                     results['services'].append(service)
+                    # Import here to avoid circular imports
+                    from models import SystemConfig
+                    fallback_rate = SystemConfig.get_fallback_rate()
                     results['rates_used'].append(
-                        tariff_result['rate_used'].tariff_rate if tariff_result['rate_used'] else 0.8
+                        tariff_result['rate_used'].tariff_rate if tariff_result['rate_used'] else fallback_rate
                     )
                     results['methods'].append(
                         'configured' if not tariff_result['fallback_used'] else 'fallback'
                     )
+                    results['shipment_dates'].append(ship_date)
                 else:
                     # No valid data for calculation
                     results['tariff_amounts'].append(0)
@@ -437,6 +443,7 @@ class DataProcessor:
                     results['services'].append('All')
                     results['rates_used'].append(0)
                     results['methods'].append('no_data')
+                    results['shipment_dates'].append(ship_date)
             
             print(f"Completed tariff calculation for {len(results['tariff_amounts'])} shipments")
             configured_count = sum(1 for method in results['methods'] if method == 'configured')
@@ -452,12 +459,14 @@ class DataProcessor:
             
             # Return default values in case of error
             row_count = len(merged_df)
+            from models import SystemConfig
             return {
                 'tariff_amounts': [0] * row_count,
                 'categories': ['Unknown'] * row_count,
                 'services': ['All'] * row_count,
-                'rates_used': [0.8] * row_count,
-                'methods': ['error'] * row_count
+                'rates_used': [SystemConfig.get_fallback_rate()] * row_count,
+                'methods': ['error'] * row_count,
+                'shipment_dates': [date.today()] * row_count
             }
     
     def _derive_goods_category(self, declared_content: str) -> str:
@@ -537,7 +546,7 @@ class DataProcessor:
     
     def _parse_shipment_date(self, date_str: str) -> date:
         """
-        Parse shipment date from various formats
+        Parse shipment date from various formats with enhanced error handling
         
         Args:
             date_str: Date string from shipment data
@@ -545,17 +554,11 @@ class DataProcessor:
         Returns:
             date: Parsed date or today's date if parsing fails
         """
-        if not date_str:
-            return date.today()
+        from data_converter import parse_date_flexible
         
-        try:
-            # Try common date formats
-            for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d %H:%M:%S']:
-                try:
-                    return datetime.strptime(str(date_str)[:10], fmt[:10]).date()
-                except ValueError:
-                    continue
-        except:
-            pass
+        parsed_date = parse_date_flexible(date_str)
+        if parsed_date:
+            return parsed_date
         
+        # If all parsing fails, return today's date
         return date.today()

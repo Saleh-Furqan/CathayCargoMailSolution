@@ -74,6 +74,41 @@ class TariffRate(db.Model):
             
         return query.all()
     
+    @classmethod
+    def check_weight_range_overlap(cls, origin_country, destination_country, goods_category, 
+                                  postal_service, start_date, end_date, min_weight, max_weight, exclude_id=None):
+        """Check for overlapping weight ranges for the same route/category/service/date combination"""
+        # Check for rates that have overlapping date and weight ranges
+        query = cls.query.filter(
+            cls.origin_country == origin_country,
+            cls.destination_country == destination_country,
+            cls.goods_category == goods_category,
+            cls.postal_service == postal_service,
+            cls.is_active == True,
+            # Check for date overlap
+            cls.start_date <= end_date,
+            cls.end_date >= start_date,
+            # Check for weight range overlap: new range overlaps if:
+            # new_min <= existing_max AND new_max >= existing_min
+            cls.min_weight <= max_weight,
+            cls.max_weight >= min_weight
+        )
+        
+        if exclude_id:
+            query = query.filter(cls.id != exclude_id)
+            
+        return query.all()
+    
+    def validate_weight_range(self):
+        """Validate weight range"""
+        if self.min_weight is not None and self.max_weight is not None:
+            if self.min_weight < 0:
+                raise ValueError("Minimum weight cannot be negative")
+            if self.max_weight < 0:
+                raise ValueError("Maximum weight cannot be negative")
+            if self.min_weight > self.max_weight:
+                raise ValueError("Minimum weight cannot be greater than maximum weight")
+    
     def to_dict(self):
         """Convert to dictionary for API responses"""
         return {
@@ -203,13 +238,14 @@ class TariffRate(db.Model):
                 'fallback_used': False
             }
         else:
-            # Fallback: use historical average or default rate (80%)
-            fallback_rate = 0.8
+            # Fallback: use dynamic fallback rate
+            fallback_rate = SystemConfig.get_fallback_rate()
             tariff_amount = declared_value * fallback_rate
             return {
                 'tariff_amount': round(tariff_amount, 2),
                 'rate_used': None,
-                'fallback_used': True
+                'fallback_used': True,
+                'fallback_rate': fallback_rate
             }
 
 class ProcessedShipment(db.Model):
@@ -382,3 +418,81 @@ class ProcessedShipment(db.Model):
             'Arrival Date': self.arrival_date_formatted or '',
             'Declared Value (USD)': self.declared_value_usd or ''
         }
+
+
+class SystemConfig(db.Model):
+    """Model for storing system configuration settings"""
+    __tablename__ = 'system_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    config_key = db.Column(db.String(100), unique=True, nullable=False)
+    config_value = db.Column(db.String(500), nullable=False)
+    config_type = db.Column(db.String(20), default='string')  # 'string', 'float', 'int', 'boolean'
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    @classmethod
+    def get_fallback_rate(cls):
+        """Get the dynamic fallback tariff rate"""
+        config = cls.query.filter_by(config_key='fallback_tariff_rate').first()
+        if config:
+            try:
+                return float(config.config_value)
+            except (ValueError, TypeError):
+                pass
+        
+        # If no config found or invalid value, calculate from historical average
+        from sqlalchemy import func
+        avg_rate = db.session.query(func.avg(TariffRate.tariff_rate)).filter(
+            TariffRate.is_active == True
+        ).scalar()
+        
+        if avg_rate and avg_rate > 0:
+            # Store the calculated rate for future use
+            cls.set_config('fallback_tariff_rate', str(avg_rate), 'float', 
+                          'Dynamic fallback rate calculated from historical averages')
+            return float(avg_rate)
+        else:
+            # Final fallback to 0.8 (80%)
+            return 0.8
+    
+    @classmethod
+    def set_config(cls, key, value, config_type='string', description=None):
+        """Set a configuration value"""
+        config = cls.query.filter_by(config_key=key).first()
+        if config:
+            config.config_value = str(value)
+            config.config_type = config_type
+            config.description = description or config.description
+            config.updated_at = datetime.utcnow()
+        else:
+            config = cls(
+                config_key=key,
+                config_value=str(value),
+                config_type=config_type,
+                description=description
+            )
+            db.session.add(config)
+        
+        db.session.commit()
+        return config
+    
+    @classmethod
+    def get_config(cls, key, default=None, config_type='string'):
+        """Get a configuration value with type conversion"""
+        config = cls.query.filter_by(config_key=key).first()
+        if not config:
+            return default
+        
+        try:
+            if config_type == 'float':
+                return float(config.config_value)
+            elif config_type == 'int':
+                return int(config.config_value)
+            elif config_type == 'boolean':
+                return config.config_value.lower() in ('true', '1', 'yes')
+            else:
+                return config.config_value
+        except (ValueError, TypeError):
+            return default
