@@ -9,6 +9,24 @@ from config import Config
 from sqlalchemy import func, and_
 from data_processor import DataProcessor
 
+def _safe_float(value):
+    """Safely convert value to float, return None if invalid"""
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+def _safe_int(value):
+    """Safely convert value to int, return None if invalid"""
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return int(float(value))  # Convert to float first to handle string decimals
+    except (ValueError, TypeError):
+        return None
+
 app = Flask(__name__)
 app.config.from_object(Config)
 
@@ -89,14 +107,14 @@ def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataF
             arrival_uld_number=str(row.get('Arrival ULD number', '')),
             
             # Package and content details
-            bag_weight=str(row.get('Bag weight', '')),
+            bag_weight=_safe_float(row.get('Bag weight')),
             bag_number=str(row.get('Bag Number', '')),
             declared_content=str(row.get('Declared content', '')),
             hs_code=str(row.get('HS Code', '')),
-            declared_value=str(row.get('Declared Value', '')),
+            declared_value=_safe_float(row.get('Declared Value')),
             currency=str(row.get('Currency', '')),
-            number_of_packets=str(row.get('Number of Packet under same receptacle', '')),
-            tariff_amount=str(row.get('Tariff amount', '')),
+            number_of_packets=_safe_int(row.get('Number of Packet under same receptacle')),
+            tariff_amount=_safe_float(row.get('Tariff amount')),
             
             # Enhanced tariff fields
             goods_category=str(row.get('Declared content category', '')),
@@ -797,7 +815,64 @@ def update_tariff_rate(rate_id):
         
         data = request.json
         
-        # Update fields
+        # Check if classification fields are being updated
+        origin = data.get('origin_country', tariff_rate.origin_country)
+        destination = data.get('destination_country', tariff_rate.destination_country)
+        goods_category = data.get('goods_category', tariff_rate.goods_category)
+        postal_service = data.get('postal_service', tariff_rate.postal_service)
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
+        # Parse dates if provided
+        from datetime import datetime as dt, date
+        if start_date:
+            try:
+                start_date = dt.strptime(start_date, '%Y-%m-%d').date()
+            except:
+                start_date = tariff_rate.start_date
+        else:
+            start_date = tariff_rate.start_date
+            
+        if end_date:
+            try:
+                end_date = dt.strptime(end_date, '%Y-%m-%d').date()
+            except:
+                end_date = tariff_rate.end_date
+        else:
+            end_date = tariff_rate.end_date
+        
+        # Validate dates
+        if start_date >= end_date:
+            return jsonify({'error': 'Start date must be before end date'}), 400
+        
+        # Check for overlapping rates (excluding this rate)
+        overlapping_rates = TariffRate.check_overlapping_rates(
+            origin, destination, goods_category, postal_service, start_date, end_date, exclude_id=rate_id
+        )
+        
+        if overlapping_rates:
+            overlapping_info = []
+            for rate in overlapping_rates:
+                overlapping_info.append({
+                    'id': rate.id,
+                    'start_date': rate.start_date.isoformat(),
+                    'end_date': rate.end_date.isoformat(),
+                    'rate': rate.tariff_rate
+                })
+            return jsonify({
+                'error': 'Updated date range would overlap with existing rates',
+                'overlapping_rates': overlapping_info
+            }), 400
+        
+        # Update all fields
+        tariff_rate.origin_country = origin
+        tariff_rate.destination_country = destination
+        tariff_rate.goods_category = goods_category
+        tariff_rate.postal_service = postal_service
+        tariff_rate.start_date = start_date
+        tariff_rate.end_date = end_date
+        tariff_rate.min_weight = data.get('min_weight', tariff_rate.min_weight)
+        tariff_rate.max_weight = data.get('max_weight', tariff_rate.max_weight)
         tariff_rate.tariff_rate = data.get('tariff_rate', tariff_rate.tariff_rate)
         tariff_rate.minimum_tariff = data.get('minimum_tariff', tariff_rate.minimum_tariff)
         tariff_rate.maximum_tariff = data.get('maximum_tariff', tariff_rate.maximum_tariff)
@@ -903,12 +978,12 @@ def calculate_tariff():
         else:
             ship_date = date.today()
         
-        # Use the enhanced tariff calculation (weight filtering can be added in future)
+        # Use the enhanced tariff calculation with weight filtering
         result = TariffRate.calculate_tariff_for_shipment(
-            origin, destination, declared_value, goods_category, postal_service, ship_date
+            origin, destination, declared_value, goods_category, postal_service, ship_date, weight
         )
         
-        # Store weight for future use in weight-based tariff filtering
+        # Store weight in result for reference
         result['weight'] = weight
         
         if result['rate_used']:

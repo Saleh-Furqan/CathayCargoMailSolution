@@ -393,12 +393,18 @@ class DataProcessor:
                 origin = row.get('Host Origin Station', '')
                 destination = row.get('Host Destination Station', '')
                 declared_value = row.get('Customs Declared Value', 0)
+                bag_weight = row.get('Receptacle Weight', 0)
                 
-                # Convert declared value to float
+                # Convert values to float
                 try:
                     declared_value = float(declared_value) if pd.notnull(declared_value) else 0
                 except (ValueError, TypeError):
                     declared_value = 0
+                    
+                try:
+                    bag_weight = float(bag_weight) if pd.notnull(bag_weight) else 0
+                except (ValueError, TypeError):
+                    bag_weight = 0
                 
                 # Derive goods category from declared content
                 category = self._derive_goods_category(row.get('Content', ''))
@@ -409,10 +415,10 @@ class DataProcessor:
                 # Use arrival date or current date for tariff calculation
                 ship_date = self._parse_shipment_date(row.get('Arrival Date', ''))
                 
-                # Calculate tariff using enhanced system
+                # Calculate tariff using enhanced system with weight
                 if declared_value > 0 and origin and destination:
                     tariff_result = TariffRate.calculate_tariff_for_shipment(
-                        origin, destination, declared_value, category, service, ship_date
+                        origin, destination, declared_value, category, service, ship_date, bag_weight
                     )
                     
                     results['tariff_amounts'].append(round(tariff_result['tariff_amount'], 2))
@@ -456,7 +462,7 @@ class DataProcessor:
     
     def _derive_goods_category(self, declared_content: str) -> str:
         """
-        Derive goods category from declared content
+        Derive goods category from declared content using enhanced keyword mapping
         
         Args:
             declared_content: The declared content description
@@ -467,25 +473,76 @@ class DataProcessor:
         if not declared_content:
             return '*'
         
-        content_lower = str(declared_content).lower()
+        content_lower = str(declared_content).lower().strip()
         
-        # Simple category mapping based on keywords
-        if any(word in content_lower for word in ['document', 'paper', 'letter', 'bill', 'invoice']):
-            return 'Documents'
-        elif any(word in content_lower for word in ['gift', 'personal', 'clothing', 'book', 'toy']):
-            return 'Personal Items'
-        elif any(word in content_lower for word in ['electronic', 'phone', 'computer', 'gadget']):
-            return 'Electronics'
-        elif any(word in content_lower for word in ['medicine', 'pharmaceutical', 'drug', 'medical']):
-            return 'Pharmaceuticals'
-        elif any(word in content_lower for word in ['food', 'snack', 'supplement', 'nutrition']):
-            return 'Food & Supplements'
-        else:
-            return 'General Merchandise'
+        # Enhanced category mapping with more comprehensive keywords
+        category_mappings = {
+            'Documents': [
+                'document', 'paper', 'letter', 'bill', 'invoice', 'contract', 
+                'certificate', 'passport', 'visa', 'form', 'report', 'manual',
+                'brochure', 'leaflet', 'catalog', 'catalogue', 'magazine'
+            ],
+            'Electronics': [
+                'electronic', 'phone', 'computer', 'laptop', 'tablet', 'gadget',
+                'mobile', 'cellphone', 'smartphone', 'iphone', 'android', 'pc',
+                'camera', 'headphone', 'earphone', 'speaker', 'charger', 'cable',
+                'battery', 'chip', 'circuit', 'motherboard', 'processor', 'memory',
+                'hard drive', 'ssd', 'usb', 'bluetooth', 'wifi', 'router'
+            ],
+            'Clothing & Textiles': [
+                'clothing', 'shirt', 'pants', 'dress', 'skirt', 'jacket', 'coat',
+                'shoes', 'boot', 'sandal', 'sock', 'underwear', 'bra', 'tie',
+                'hat', 'cap', 'glove', 'scarf', 'fabric', 'textile', 'cotton',
+                'wool', 'silk', 'polyester', 'leather', 'denim'
+            ],
+            'Personal Care & Cosmetics': [
+                'cosmetic', 'makeup', 'lipstick', 'foundation', 'mascara', 'perfume',
+                'cologne', 'shampoo', 'conditioner', 'soap', 'lotion', 'cream',
+                'skincare', 'moisturizer', 'sunscreen', 'toothpaste', 'deodorant'
+            ],
+            'Pharmaceuticals': [
+                'medicine', 'pharmaceutical', 'drug', 'medical', 'pill', 'tablet',
+                'capsule', 'syrup', 'injection', 'vaccine', 'antibiotic', 'vitamin',
+                'supplement', 'prescription', 'otc', 'over the counter'
+            ],
+            'Food & Beverages': [
+                'food', 'snack', 'chocolate', 'candy', 'cookie', 'biscuit', 'tea',
+                'coffee', 'drink', 'beverage', 'juice', 'wine', 'alcohol', 'spice',
+                'sauce', 'oil', 'honey', 'jam', 'cereal', 'rice', 'noodle'
+            ],
+            'Books & Media': [
+                'book', 'magazine', 'newspaper', 'journal', 'novel', 'textbook',
+                'cd', 'dvd', 'blu-ray', 'music', 'movie', 'film', 'video', 'game'
+            ],
+            'Toys & Games': [
+                'toy', 'doll', 'puzzle', 'game', 'board game', 'card game', 'lego',
+                'action figure', 'stuffed animal', 'teddy bear', 'ball', 'bike'
+            ],
+            'Jewelry & Accessories': [
+                'jewelry', 'jewellery', 'necklace', 'bracelet', 'ring', 'earring',
+                'watch', 'chain', 'pendant', 'diamond', 'gold', 'silver', 'pearl'
+            ],
+            'Home & Garden': [
+                'furniture', 'chair', 'table', 'bed', 'sofa', 'lamp', 'mirror',
+                'vase', 'plant', 'seed', 'tool', 'hammer', 'screwdriver', 'paint'
+            ],
+            'Sports & Fitness': [
+                'sport', 'fitness', 'exercise', 'gym', 'ball', 'racket', 'golf',
+                'tennis', 'basketball', 'football', 'soccer', 'running', 'yoga'
+            ]
+        }
+        
+        # Check each category for keyword matches
+        for category, keywords in category_mappings.items():
+            if any(keyword in content_lower for keyword in keywords):
+                return category
+        
+        # Default to General Merchandise if no specific match found
+        return 'General Merchandise'
     
     def _derive_postal_service(self, row: pd.Series) -> str:
         """
-        Derive postal service type from shipment data
+        Derive postal service type from shipment data using enhanced pattern matching
         
         Args:
             row: Shipment data row
@@ -493,21 +550,75 @@ class DataProcessor:
         Returns:
             str: Derived service type
         """
-        # For now, use default. In future, this could be derived from:
-        # - Tracking number patterns
-        # - Service codes in the data
-        # - Weight/size thresholds
-        # - Customer service selection
-        
-        # Check if there are any service indicators in the data
+        # Enhanced service derivation from multiple data sources
         tracking = str(row.get('Tracking Number', '')).upper()
+        content = str(row.get('Content', '')).lower()
+        declared_value = row.get('Customs Declared Value', 0)
         
-        if tracking.startswith('E') and 'CN' in tracking:
+        try:
+            declared_value = float(declared_value) if pd.notnull(declared_value) else 0
+        except (ValueError, TypeError):
+            declared_value = 0
+        
+        # Enhanced tracking number pattern matching
+        service_patterns = {
+            'EMS': [
+                # EMS patterns
+                lambda t: t.startswith('E') and 'CN' in t,
+                lambda t: 'EMS' in t,
+                lambda t: t.startswith('EE') or t.startswith('EP'),
+                lambda t: t.startswith('CX') and len(t) == 13,  # China EMS format
+            ],
+            'Registered Mail': [
+                # Registered mail patterns
+                lambda t: t.startswith('R') and 'CN' in t,
+                lambda t: t.startswith('L') and 'CN' in t,
+                lambda t: 'REG' in t,
+                lambda t: t.startswith('RR') or t.startswith('RL'),
+            ],
+            'Air Mail': [
+                # Air mail patterns
+                lambda t: t.startswith('C') and 'CN' in t,
+                lambda t: 'AIR' in t,
+                lambda t: t.startswith('CP') or t.startswith('CA'),
+            ],
+            'E-packet': [
+                # E-packet patterns
+                lambda t: t.startswith('L') and len(t) == 13,
+                lambda t: 'PACKET' in t,
+                lambda t: t.startswith('LP') or t.startswith('LK'),
+            ],
+            'Surface Mail': [
+                # Surface mail patterns  
+                lambda t: t.startswith('N') and 'CN' in t,
+                lambda t: 'SURFACE' in t or 'SEA' in t,
+                lambda t: t.startswith('NS') or t.startswith('NM'),
+            ]
+        }
+        
+        # Check tracking number patterns
+        for service, patterns in service_patterns.items():
+            if any(pattern(tracking) for pattern in patterns):
+                return service
+        
+        # Check content-based service hints
+        if any(word in content for word in ['express', 'urgent', 'fast', 'quick']):
             return 'EMS'
-        elif tracking.startswith('L') or tracking.startswith('R'):
+        elif any(word in content for word in ['registered', 'insured', 'secure']):
             return 'Registered Mail'
-        else:
-            return '*'  # Default to wildcard
+        elif any(word in content for word in ['air mail', 'airmail']):
+            return 'Air Mail'
+        elif any(word in content for word in ['surface', 'sea', 'economy']):
+            return 'Surface Mail'
+        
+        # Value-based service inference (higher value items often use premium services)
+        if declared_value > 100:
+            return 'EMS'  # High-value items typically use EMS
+        elif declared_value > 20:
+            return 'Registered Mail'  # Medium-value items often registered
+        
+        # Default to wildcard if no pattern matches
+        return '*'
     
     def _parse_shipment_date(self, date_str: str) -> date:
         """

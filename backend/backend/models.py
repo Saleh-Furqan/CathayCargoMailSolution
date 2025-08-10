@@ -114,7 +114,7 @@ class TariffRate(db.Model):
         return round(tariff_amount, 2)
     
     @staticmethod
-    def find_applicable_rate(origin, destination, goods_category=None, postal_service=None, ship_date=None):
+    def find_applicable_rate(origin, destination, goods_category=None, postal_service=None, ship_date=None, weight=None):
         """
         Find the most applicable tariff rate for given parameters
         Prioritizes exact matches over wildcard matches
@@ -125,6 +125,7 @@ class TariffRate(db.Model):
             goods_category: Goods category (optional, defaults to '*')
             postal_service: Postal service (optional, defaults to '*')
             ship_date: Shipment date (optional, defaults to today)
+            weight: Package weight (optional, used for weight-based filtering)
         
         Returns:
             TariffRate: Most specific matching rate or None
@@ -162,6 +163,15 @@ class TariffRate(db.Model):
         if not service_matches:
             return None
         
+        # Filter by weight if provided
+        if weight is not None:
+            weight_matches = [r for r in service_matches 
+                            if r.min_weight <= weight <= r.max_weight]
+            # If no weight-specific rates found, fallback to all service matches
+            # This allows rates without weight restrictions to still apply
+            if weight_matches:
+                service_matches = weight_matches
+        
         # Sort by specificity (most specific first)
         # Priority: exact category & service > exact category only > exact service only > wildcards
         def specificity_score(rate):
@@ -177,14 +187,14 @@ class TariffRate(db.Model):
     
     @staticmethod
     def calculate_tariff_for_shipment(origin, destination, declared_value, 
-                                    goods_category=None, postal_service=None, ship_date=None):
+                                    goods_category=None, postal_service=None, ship_date=None, weight=None):
         """
         Calculate tariff for a shipment using the most applicable rate
         
         Returns:
             dict: {'tariff_amount': float, 'rate_used': TariffRate or None, 'fallback_used': bool}
         """
-        rate = TariffRate.find_applicable_rate(origin, destination, goods_category, postal_service, ship_date)
+        rate = TariffRate.find_applicable_rate(origin, destination, goods_category, postal_service, ship_date, weight)
         
         if rate:
             return {
@@ -244,14 +254,14 @@ class ProcessedShipment(db.Model):
     arrival_uld_number = db.Column(db.String(100))  # Arrival ULD number
     
     # Package and content details
-    bag_weight = db.Column(db.String(50))  # Bag weight
+    bag_weight = db.Column(db.Float)  # Bag weight (numeric for calculations)
     bag_number = db.Column(db.String(50))  # Bag Number
     declared_content = db.Column(db.Text)  # Declared content
     hs_code = db.Column(db.String(100))  # HS Code
-    declared_value = db.Column(db.String(50))  # Declared Value
+    declared_value = db.Column(db.Float)  # Declared Value (numeric for calculations)
     currency = db.Column(db.String(10))  # Currency
-    number_of_packets = db.Column(db.String(50))  # Number of Packet under same receptacle
-    tariff_amount = db.Column(db.String(50))  # Tariff amount (calculated from rates)
+    number_of_packets = db.Column(db.Integer)  # Number of Packet under same receptacle
+    tariff_amount = db.Column(db.Float)  # Tariff amount (calculated from rates)
     
     # Enhanced tariff classification fields (for automatic tariff calculation)
     goods_category = db.Column(db.String(100), default='*')  # Derived goods category
@@ -309,14 +319,14 @@ class ProcessedShipment(db.Model):
             'arrival_uld_number': self._clean_value(self.arrival_uld_number),
             
             # Package details
-            'bag_weight': self._clean_value(self.bag_weight),
+            'bag_weight': self.bag_weight if self.bag_weight is not None else 0.0,
             'bag_number': self._clean_value(self.bag_number),
             'declared_content': self._clean_value(self.declared_content),
             'hs_code': self._clean_value(self.hs_code),
-            'declared_value': self._clean_value(self.declared_value),
+            'declared_value': self.declared_value if self.declared_value is not None else 0.0,
             'currency': self._clean_value(self.currency),
-            'number_of_packets': self._clean_value(self.number_of_packets),
-            'tariff_amount': self._clean_value(self.tariff_amount),
+            'number_of_packets': self.number_of_packets if self.number_of_packets is not None else 0,
+            'tariff_amount': self.tariff_amount if self.tariff_amount is not None else 0.0,
             'goods_category': self._clean_value(self.goods_category),
             'postal_service': self._clean_value(self.postal_service),
             'shipment_date': self.shipment_date.isoformat() if self.shipment_date else '',
