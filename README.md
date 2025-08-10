@@ -1,17 +1,19 @@
 # Cathay Mail Solution
 
-A comprehensive web application for managing US tariff compliance for Cathay Pacific's international mail services. The system processes CNP (China Post Network) data, integrates with IODA flight information, calculates tariffs using configurable rate tables, and generates compliant output files for China Post and CBP (Customs and Border Protection).
+A comprehensive web application for managing US tariff compliance for Cathay Pacific's international mail services. The system processes CNP (China Post Network) data, integrates with pre-merged IODA (Integrated Operations Data Archive) flight information, calculates tariffs using configurable rate tables, and generates compliant output files for China Post and CBP (Customs and Border Protection).
+
+**Note**: This implementation uses pre-processed IODA data files and does not perform raw CARDIT/MASTER/EVENT data merging. This design simplifies the data integration process while maintaining full functionality for tariff calculation and compliance reporting.
 
 ## 🎯 Key Features
 
 - **Multi-Dimensional Tariff Management**: Configure tariff rates by route, goods category, postal service, date range, and weight
-- **Automated Data Processing**: Process CNP raw data and merge with IODA flight information
-- **Smart Classification**: Automatic goods categorization and postal service detection using configurable keyword mappings  
-- **Weight-Based Rate Filtering**: Advanced rate selection based on package weight ranges
+- **Automated Data Processing**: Process CNP raw data and merge with pre-processed IODA flight information
+- **Smart Classification System**: Automatic goods categorization and postal service detection using configurable keyword mappings with admin interface
+- **Weight-Based Rate Filtering**: Advanced rate selection based on package weight ranges with overlap validation
 - **Batch Operations**: Recalculate all tariffs when rate configurations change
 - **Real-Time Analytics**: Business intelligence dashboard with shipment insights
-- **Database-Driven Architecture**: No hardcoded values - all rates stored in SQLite database
-- **Production Ready**: Database migrations, deployment scripts, and comprehensive error handling
+- **Database-Driven Architecture**: No hardcoded values - all rates stored in SQLite database with migration support
+- **Classification Management**: Web interface for managing goods categories, keywords, and testing classification rules
 
 ## 🏗️ Architecture Overview
 
@@ -29,7 +31,7 @@ A comprehensive web application for managing US tariff compliance for Cathay Pac
 
 ### Data Flow
 ```
-CNP Raw Data → Data Processor → IODA Integration → Tariff Calculation → Output Generation
+CNP Raw Data → Data Processor → Pre-merged IODA → Tariff Calculation → Output Generation
      ↓              ↓                ↓                    ↓                ↓
 Excel Upload → Parse & Clean → Flight Matching → Rate Application → CBP/ChinaPost Files
 ```
@@ -96,6 +98,54 @@ Enhanced Tariff System ← Goods Classification ← Weight-Based Filtering
            ↓
     Rate Application → Database Storage → Export Generation (ChinaPost/CBP)
 ```
+
+## 🧠 Classification Management System
+
+The application includes a comprehensive classification management interface that allows administrators to configure and test automatic goods categorization rules.
+
+### Key Features
+- **Category Management**: Add, edit, and remove goods categories with associated keywords
+- **Keyword Management**: Manage keyword mappings that automatically classify shipment contents
+- **Classification Testing**: Test classification rules with real content descriptions to see predicted categories, confidence scores, and matched keywords
+- **Service Pattern Viewing**: View postal service detection patterns (EMS, Registered Mail, Air Mail, etc.)
+- **Real-time Validation**: Immediate feedback on classification changes with notifications
+
+### How Classification Works
+1. **Content Analysis**: When processing shipment data, the system analyzes the declared content description
+2. **Keyword Matching**: Matches keywords against predefined category mappings
+3. **Confidence Scoring**: Calculates confidence based on keyword matches and content relevance
+4. **Service Detection**: Uses tracking number patterns to identify postal service types
+5. **Tariff Application**: Uses classified category and service to select appropriate tariff rates
+
+### Accessing Classification Management
+Navigate to **Classification Management** from the main menu to:
+- Add new goods categories and keywords
+- Test classification with sample content
+- View service pattern descriptions
+- Monitor classification accuracy
+
+## ⚠️ Current Limitations
+
+This implementation includes the following limitations and design decisions:
+
+### Data Integration
+- **Pre-merged IODA Files**: Uses pre-processed IODA data files rather than performing raw CARDIT/MASTER/EVENT data merging
+- **File-based Integration**: Relies on Excel file uploads rather than real-time data feeds
+
+### Tariff Rate Management
+- **Origin/Destination Editing**: Origin and destination fields cannot be modified in existing rates (delete and recreate required)
+- **Weight Range Validation**: System prevents overlapping weight ranges but manual verification may be needed for complex scenarios
+- **Date Range Constraints**: Overlapping date ranges are restricted per route/category/service combination
+
+### Classification System
+- **Service Patterns**: Postal service detection patterns are fixed and require backend configuration changes
+- **Keyword Management**: Category keywords are configurable through the UI but service patterns are not
+- **Fallback Rates**: System uses configurable fallback rates when specific tariff configurations are not found
+
+### System Architecture
+- **Single Database**: Uses SQLite for demonstration purposes (production may require PostgreSQL/MySQL)
+- **No Authentication**: Current implementation focuses on functionality without user authentication
+- **Local File Storage**: Processes files locally without cloud storage integration
 
 ## 🚀 Getting Started
 
@@ -165,44 +215,32 @@ npm run dev
 - TypeScript compilation with Vite
 - Auto-opens browser on start
 
-### Production Deployment
+### Quick Start for Demo
 
-For production deployments, use the included deployment script:
-
-```bash
-cd backend/backend
-source venv/bin/activate
-python deploy.py
-```
-
-**Deployment Script Features:**
-- ✅ Dependency verification
-- ✅ Configuration validation
-- ✅ Database migration execution
-- ✅ Environment setup checks
-- ✅ Production readiness verification
-
-### Manual Production Setup
-
-If you prefer manual setup:
+The fastest way to get the application running for demonstration:
 
 ```bash
-# Backend (Production)
+# 1. Backend Setup (Terminal 1)
 cd backend/backend
 source venv/bin/activate
+python app.py
 
-# Run database migrations
-flask db upgrade
-
-# Start with production WSGI server (recommended)
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:5001 app:app
-
-# Frontend (Production Build)
-cd ../../frontend
-npm run build
-npm run preview  # Or serve with nginx/apache
+# 2. Frontend Setup (Terminal 2)  
+cd frontend
+npm run dev
 ```
+
+Your application will be available at:
+- **Frontend**: http://localhost:5173 (or 3001 if 5173 is busy)
+- **Backend API**: http://localhost:5001
+
+### Production Notes
+
+For production deployment:
+- Use `gunicorn` or similar WSGI server for the Flask backend
+- Build the frontend with `npm run build` and serve with nginx/apache
+- Configure environment variables and database settings appropriately
+- See the included `deploy.py` script for automated deployment validation
 
 ## 📱 Application Usage
 
@@ -220,17 +258,17 @@ npm run preview  # Or serve with nginx/apache
 
 📤 Data Processing (/data-processing)  
 ├── CNP file upload and processing
-├── IODA data integration
+├── Pre-merged IODA data integration
 ├── Automated tariff calculation
 └── Fallback rate usage summary
 
 ⚙️  Tariff Management (/tariff-management)
 ├── Multi-dimensional rate configuration
-├── Weight-based filtering setup
+├── Weight-based filtering with overlap validation
 ├── Batch tariff recalculation
 └── Rate testing calculator
 
-🔧 Classification Management (/classification-management)
+🧠 Classification Management (/classification-management)
 ├── Goods category keyword management
 ├── Classification testing tool
 ├── Postal service pattern viewing
@@ -544,22 +582,17 @@ SERVICE_PATTERNS['New Service'] = [
 ]
 ```
 
-### 🚀 Production Deployment Checklist
+### 🚀 Production Deployment Notes
 
-#### Pre-Deployment
-- [ ] Run `python deploy.py` to validate environment
-- [ ] Backup existing database: `cp shipments.db shipments.db.backup`
-- [ ] Test migrations: `flask db upgrade --sql` (dry run)
-- [ ] Build frontend: `npm run build`
-- [ ] Update environment variables for production
-- [ ] Configure reverse proxy (nginx/apache) if needed
+For production deployment beyond demonstration purposes:
 
-#### Security Considerations
-- [ ] Use HTTPS in production
-- [ ] Set strong `SECRET_KEY` in Flask config
-- [ ] Implement proper access controls
-- [ ] Regular database backups
-- [ ] Monitor logs for suspicious activity
+- **Database**: Consider PostgreSQL or MySQL for production instead of SQLite
+- **Security**: Implement proper authentication, HTTPS, and environment variable management
+- **Scalability**: Use proper WSGI servers (gunicorn/uwsgi) and reverse proxies (nginx/apache)
+- **Monitoring**: Set up proper logging, monitoring, and backup procedures
+- **Validation**: Use the included `deploy.py` script to validate environment setup
+
+This demonstration version focuses on functionality over production infrastructure.
 
 ### 🔍 Monitoring & Maintenance
 
@@ -570,23 +603,10 @@ SERVICE_PATTERNS['New Service'] = [
 - **Memory Usage**: System resource monitoring
 - **Error Rates**: Review `app.log` for exceptions
 
-#### Regular Maintenance Tasks
-```bash
-# Weekly
-- Review processed shipment counts
-- Check database growth and performance  
-- Verify tariff rate configurations
-
-# Monthly  
-- Backup database: tar -czf backup-$(date +%Y%m%d).tar.gz shipments.db
-- Review and archive old shipments if needed
-- Update classification mappings based on new data patterns
-
-# As Needed
-- Update dependencies: pip freeze > requirements.txt
-- Create database migrations for schema changes
-- Monitor and optimize slow queries
-```
+#### Maintenance Tasks for Production
+- **Regular**: Monitor database size, review processed shipment counts
+- **Periodic**: Update classification mappings based on new data patterns, backup database
+- **As Needed**: Update dependencies, create database migrations, optimize performance
 
 ### 🐛 Comprehensive Troubleshooting
 
