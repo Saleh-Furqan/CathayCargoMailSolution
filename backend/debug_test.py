@@ -8,8 +8,8 @@ import json
 # Add the backend directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from app import app, db
-from models import TariffRate
+from src.app import app, db
+from src.models.database import TariffRate
 from datetime import date
 
 app.config['TESTING'] = True

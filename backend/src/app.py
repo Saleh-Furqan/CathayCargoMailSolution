@@ -80,55 +80,55 @@ def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataF
         cbd_data = cbd_dict.get(tracking_number, {})
         
         # Create new processed shipment entry
-        entry = ProcessedShipment(
-            # Core identification
-            sequence_number=str(row.get('', '')),
-            pawb=pawb,
-            cardit=str(row.get('CARDIT', '')),
-            tracking_number=tracking_number,
-            receptacle_id=receptacle_id,
-            
-            # Flight and routing information
-            host_origin_station=str(row.get('Host Origin Station', '')),
-            host_destination_station=str(row.get('Host Destination Station', '')),
-            flight_carrier_1=str(row.get('Flight Carrier 1', '')),
-            flight_number_1=str(row.get('Flight Number 1', '')),
-            flight_date_1=str(row.get('Flight Date 1', '')),
-            flight_carrier_2=str(row.get('Flight Carrier 2', '')),
-            flight_number_2=str(row.get('Flight Number 2', '')),
-            flight_date_2=str(row.get('Flight Date 2', '')),
-            flight_carrier_3=str(row.get('Flight Carrier 3', '')),
-            flight_number_3=str(row.get('Flight Number 3', '')),
-            flight_date_3=str(row.get('Flight Date 3', '')),
-            
-            # Arrival and ULD information
-            arrival_date=str(row.get('Arrival Date', '')),
-            arrival_uld_number=str(row.get('Arrival ULD number', '')),
-            
-            # Package and content details
-            bag_weight=_safe_float(row.get('Bag weight')),
-            bag_number=str(row.get('Bag Number', '')),
-            declared_content=str(row.get('Declared content', '')),
-            hs_code=str(row.get('HS Code', '')),
-            declared_value=_safe_float(row.get('Declared Value')),
-            currency=str(row.get('Currency', '')),
-            number_of_packets=_safe_int(row.get('Number of Packet under same receptacle')),
-            tariff_amount=_safe_float(row.get('Tariff amount')),
-            
-            # Enhanced tariff fields
-            goods_category=str(row.get('Declared content category', '')),
-            postal_service=str(row.get('Postal service type', '')),
-            tariff_rate_used=row.get('Tariff rate used') if pd.notnull(row.get('Tariff rate used')) else None,
-            tariff_calculation_method=str(row.get('Tariff calculation method', '')),
-            shipment_date=row.get('Shipment date') if pd.notnull(row.get('Shipment date')) else None,
-            
-            # CBD export derived fields
-            carrier_code=cbd_data.get('carrier_code', ''),
-            flight_trip_number=cbd_data.get('flight_trip_number', ''),
-            arrival_port_code=cbd_data.get('arrival_port_code', ''),
-            arrival_date_formatted=cbd_data.get('arrival_date_formatted', ''),
-            declared_value_usd=cbd_data.get('declared_value_usd', '')
-        )
+        entry = ProcessedShipment()
+        
+        # Core identification
+        entry.sequence_number = str(row.get('', ''))
+        entry.pawb = pawb
+        entry.cardit = str(row.get('CARDIT', ''))
+        entry.tracking_number = tracking_number
+        entry.receptacle_id = receptacle_id
+        
+        # Flight and routing information
+        entry.host_origin_station = str(row.get('Host Origin Station', ''))
+        entry.host_destination_station = str(row.get('Host Destination Station', ''))
+        entry.flight_carrier_1 = str(row.get('Flight Carrier 1', ''))
+        entry.flight_number_1 = str(row.get('Flight Number 1', ''))
+        entry.flight_date_1 = str(row.get('Flight Date 1', ''))
+        entry.flight_carrier_2 = str(row.get('Flight Carrier 2', ''))
+        entry.flight_number_2 = str(row.get('Flight Number 2', ''))
+        entry.flight_date_2 = str(row.get('Flight Date 2', ''))
+        entry.flight_carrier_3 = str(row.get('Flight Carrier 3', ''))
+        entry.flight_number_3 = str(row.get('Flight Number 3', ''))
+        entry.flight_date_3 = str(row.get('Flight Date 3', ''))
+        
+        # Arrival and ULD information
+        entry.arrival_date = str(row.get('Arrival Date', ''))
+        entry.arrival_uld_number = str(row.get('Arrival ULD number', ''))
+        
+        # Package and content details
+        entry.bag_weight = _safe_float(row.get('Bag weight'))
+        entry.bag_number = str(row.get('Bag Number', ''))
+        entry.declared_content = str(row.get('Declared content', ''))
+        entry.hs_code = str(row.get('HS Code', ''))
+        entry.declared_value = _safe_float(row.get('Declared Value'))
+        entry.currency = str(row.get('Currency', ''))
+        entry.number_of_packets = _safe_int(row.get('Number of Packet under same receptacle'))
+        entry.tariff_amount = _safe_float(row.get('Tariff amount'))
+        
+        # Enhanced tariff fields
+        entry.goods_category = str(row.get('Declared content category', ''))
+        entry.postal_service = str(row.get('Postal service type', ''))
+        entry.tariff_rate_used = row.get('Tariff rate used') if pd.notnull(row.get('Tariff rate used')) else None
+        entry.tariff_calculation_method = str(row.get('Tariff calculation method', ''))
+        entry.shipment_date = row.get('Shipment date') if pd.notnull(row.get('Shipment date')) else None
+        
+        # CBD export derived fields
+        entry.carrier_code = cbd_data.get('carrier_code', '')
+        entry.flight_trip_number = cbd_data.get('flight_trip_number', '')
+        entry.arrival_port_code = cbd_data.get('arrival_port_code', '')
+        entry.arrival_date_formatted = cbd_data.get('arrival_date_formatted', '')
+        entry.declared_value_usd = cbd_data.get('declared_value_usd', '')
         
         db.session.add(entry)
         new_entries += 1
@@ -148,6 +148,7 @@ def health_check():
 @app.route('/upload-cnp-file', methods=['POST'])
 def upload_cnp_file():
     """Upload and process raw CNP Excel file using the correct workflow"""
+    temp_path = None
     try:
         # Check if file was uploaded
         if 'file' not in request.files:
@@ -158,7 +159,7 @@ def upload_cnp_file():
             return jsonify({"error": "No file selected"}), 400
         
         # Check file extension
-        if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        if not file.filename or not file.filename.lower().endswith(('.xlsx', '.xls')):
             return jsonify({"error": "Invalid file format. Please upload an Excel file."}), 400
         
         # Save uploaded file temporarily
@@ -226,12 +227,12 @@ def upload_cnp_file():
             
         finally:
             # Clean up temporary file
-            if os.path.exists(temp_path):
+            if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
                 
     except Exception as e:
         # Clean up temporary file in case of error
-        if 'temp_path' in locals() and os.path.exists(temp_path):
+        if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
         return jsonify({"error": str(e)}), 500
 
@@ -239,7 +240,7 @@ def upload_cnp_file():
 def get_historical_data():
     """Get historical processed shipment data with enhanced filtering - NO FRONTEND PROCESSING"""
     try:
-        data = request.json
+        data = request.json or {}
         start_date = data.get('startDate')
         end_date = data.get('endDate')
         goods_category = data.get('goodsCategory')
@@ -382,7 +383,7 @@ def get_analytics_data():
         query = ProcessedShipment.query
         
         if request.method == 'POST':
-            data = request.json or {}
+            data = request.json or {} or {}
             start_date = data.get('startDate')
             end_date = data.get('endDate')
             goods_category = data.get('goodsCategory')
@@ -595,7 +596,7 @@ def get_analytics_data():
 def delete_records():
     """Delete multiple shipment records by IDs"""
     try:
-        data = request.json
+        data = request.json or {}
         record_ids = data.get('ids', [])
         
         if not record_ids:
@@ -716,7 +717,7 @@ def get_tariff_rates():
 def create_tariff_rate():
     """Create or update a tariff rate for a route"""
     try:
-        data = request.json
+        data = request.json or {}
         origin = data.get('origin_country')
         destination = data.get('destination_country')
         goods_category = data.get('goods_category', '*')
@@ -829,22 +830,21 @@ def create_tariff_rate():
                 return jsonify({'error': 'tariff_rate is required'}), 400
                 
             # Create new rate
-            new_rate = TariffRate(
-                origin_country=origin,
-                destination_country=destination,
-                goods_category=goods_category,
-                postal_service=postal_service,
-                start_date=start_date,
-                end_date=end_date,
-                min_weight=min_weight,
-                max_weight=max_weight,
-                tariff_rate=tariff_rate,
-                minimum_tariff=data.get('minimum_tariff', 0.0),
-                maximum_tariff=data.get('maximum_tariff'),
-                currency=data.get('currency', 'USD'),
-                is_active=data.get('is_active', True),
-                notes=data.get('notes', '')
-            )
+            new_rate = TariffRate()
+            new_rate.origin_country = origin
+            new_rate.destination_country = destination
+            new_rate.goods_category = goods_category
+            new_rate.postal_service = postal_service
+            new_rate.start_date = start_date
+            new_rate.end_date = end_date
+            new_rate.min_weight = min_weight
+            new_rate.max_weight = max_weight
+            new_rate.tariff_rate = tariff_rate
+            new_rate.minimum_tariff = data.get('minimum_tariff', 0.0) if data else 0.0
+            new_rate.maximum_tariff = data.get('maximum_tariff') if data else None
+            new_rate.currency = data.get('currency', 'USD') if data else 'USD'
+            new_rate.is_active = data.get('is_active', True) if data else True
+            new_rate.notes = data.get('notes', '') if data else ''
             
             db.session.add(new_rate)
             db.session.commit()
@@ -866,7 +866,7 @@ def update_tariff_rate(rate_id):
         if not tariff_rate:
             return jsonify({'error': 'Tariff rate not found'}), 404
         
-        data = request.json
+        data = request.json or {} or {}
         
         # Check if classification fields are being updated
         origin = data.get('origin_country', tariff_rate.origin_country)
@@ -992,7 +992,8 @@ def get_tariff_system_defaults():
         ).first()
         
         system_average_rate = 0.0
-        if (totals_query.total_declared_value and 
+        if (totals_query and 
+            totals_query.total_declared_value and 
             totals_query.total_declared_value > 0 and 
             totals_query.total_tariff_amount):
             system_average_rate = totals_query.total_tariff_amount / totals_query.total_declared_value
@@ -1009,9 +1010,9 @@ def get_tariff_system_defaults():
                 'default_currency': 'USD'
             },
             'system_stats': {
-                'total_shipments': totals_query.total_shipments or 0,
-                'total_declared_value': round(totals_query.total_declared_value or 0, 2),
-                'total_tariff_amount': round(totals_query.total_tariff_amount or 0, 2),
+                'total_shipments': totals_query.total_shipments if totals_query else 0,
+                'total_declared_value': round(totals_query.total_declared_value, 2) if totals_query and totals_query.total_declared_value else 0,
+                'total_tariff_amount': round(totals_query.total_tariff_amount, 2) if totals_query and totals_query.total_tariff_amount else 0,
                 'average_rate': round(system_average_rate, 4) if system_average_rate > 0 else 0.0
             }
         })
@@ -1023,7 +1024,7 @@ def get_tariff_system_defaults():
 def calculate_tariff():
     """Calculate tariff for a given route and declared value with enhanced parameters"""
     try:
-        data = request.json
+        data = request.json or {}
         origin = data.get('origin_country')
         destination = data.get('destination_country')
         declared_value = float(data.get('declared_value', 0))
@@ -1084,7 +1085,8 @@ def calculate_tariff():
             ).first()
             
             suggested_rate = 0.0
-            if (historical_query.total_declared_value and 
+            if (historical_query and 
+                historical_query.total_declared_value and 
                 historical_query.total_declared_value > 0 and 
                 historical_query.total_tariff_amount):
                 suggested_rate = historical_query.total_tariff_amount / historical_query.total_declared_value
@@ -1167,7 +1169,7 @@ def get_tariff_services():
 def test_enhanced_filters():
     """Test endpoint for enhanced filtering capabilities"""
     try:
-        data = request.json or {}
+        data = request.json or {} or {}
         
         # Build query with all possible filters
         query = ProcessedShipment.query
@@ -1230,7 +1232,7 @@ def get_cbp_analytics():
         query = ProcessedShipment.query
         
         if request.method == 'POST':
-            data = request.json or {}
+            data = request.json or {} or {}
             start_date = data.get('startDate')
             end_date = data.get('endDate')
             
@@ -1296,7 +1298,7 @@ def get_chinapost_analytics():
         query = ProcessedShipment.query
         
         if request.method == 'POST':
-            data = request.json or {}
+            data = request.json or {} or {}
             start_date = data.get('startDate')
             end_date = data.get('endDate')
             
@@ -1409,7 +1411,7 @@ def get_chinapost_analytics():
 def batch_recalculate_tariffs():
     """Recalculate tariffs for all or filtered processed shipments"""
     try:
-        data = request.json or {}
+        data = request.json or {} or {}
         
         # Build query based on optional filters
         query = ProcessedShipment.query
@@ -1631,7 +1633,7 @@ def get_category_keywords(category):
 def add_category_keywords(category):
     """Add keywords to a category"""
     try:
-        data = request.json
+        data = request.json or {}
         new_keywords = data.get('keywords', [])
         
         if not isinstance(new_keywords, list):
@@ -1677,7 +1679,7 @@ def add_category_keywords(category):
 def remove_category_keywords(category):
     """Remove keywords from a category"""
     try:
-        data = request.json
+        data = request.json or {}
         keywords_to_remove = data.get('keywords', [])
         
         if not isinstance(keywords_to_remove, list):
@@ -1725,7 +1727,7 @@ def remove_category_keywords(category):
 def test_classification():
     """Test classification for a given content description"""
     try:
-        data = request.json
+        data = request.json or {}
         content = data.get('content', '')
         
         if not content:
@@ -1735,7 +1737,7 @@ def test_classification():
             }), 400
         
         # Use the data processor to derive category
-        processor = DataProcessor()
+        processor = DataProcessor(IODA_DATA_FILE)
         derived_category = processor._derive_goods_category(content)
         
         # Also test service derivation if tracking number provided
@@ -1820,7 +1822,7 @@ def get_service_patterns_api(service):
 def add_service_patterns(service):
     """Add patterns to a postal service"""
     try:
-        data = request.json
+        data = request.json or {}
         new_patterns = data.get('patterns', [])
         
         if not isinstance(new_patterns, list):
@@ -1897,7 +1899,7 @@ def deactivate_rate(rate_id):
                 'error': 'Tariff rate not found'
             }), 404
         
-        data = request.json or {}
+        data = request.json or {} or {}
         deactivation_reason = data.get('reason', 'Manual deactivation')
         
         rate.is_active = False
@@ -1928,7 +1930,7 @@ def reactivate_rate(rate_id):
                 'error': 'Tariff rate not found'
             }), 404
         
-        data = request.json or {}
+        data = request.json or {} or {}
         reactivation_reason = data.get('reason', 'Manual reactivation')
         
         # Check for overlaps before reactivating
@@ -1975,7 +1977,7 @@ def archive_rate(rate_id):
                 'error': 'Tariff rate not found'
             }), 404
         
-        data = request.json or {}
+        data = request.json or {} or {}
         archive_reason = data.get('reason', 'Manual archival')
         
         # Store some info before deletion for response
@@ -2011,7 +2013,7 @@ def archive_rate(rate_id):
 def bulk_deactivate_rates():
     """Bulk deactivate multiple tariff rates"""
     try:
-        data = request.json
+        data = request.json or {}
         rate_ids = data.get('rate_ids', [])
         reason = data.get('reason', 'Bulk deactivation')
         
