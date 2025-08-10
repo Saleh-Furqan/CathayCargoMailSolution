@@ -9,7 +9,7 @@ import numpy as np
 import os
 import re
 from typing import Dict, Any, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 
 class DataProcessor:
@@ -171,14 +171,19 @@ class DataProcessor:
                 cx_inner_cnp_df.groupby('Receptacle')['Receptacle'].transform('count')
             )
             
-            # Tariff amount (80% of declared value)
+            # Enhanced tariff calculation using configured rates
             cx_inner_cnp_df['Customs Declared Value'] = pd.to_numeric(
                 cx_inner_cnp_df['Customs Declared Value'], 
                 errors='coerce'
             )
-            cx_inner_cnp_df['Tariff amount'] = (
-                cx_inner_cnp_df['Customs Declared Value'] * 0.8
-            ).round(2)
+            
+            # Calculate tariffs using enhanced system
+            tariff_results = self._calculate_tariffs_for_shipments(cx_inner_cnp_df)
+            cx_inner_cnp_df['Tariff amount'] = tariff_results['tariff_amounts']
+            cx_inner_cnp_df['Declared content category'] = tariff_results['categories']
+            cx_inner_cnp_df['Postal service type'] = tariff_results['services']
+            cx_inner_cnp_df['Tariff rate used'] = tariff_results['rates_used']
+            cx_inner_cnp_df['Tariff calculation method'] = tariff_results['methods']
             
             # First column increasing number (unnamed column)
             cx_inner_cnp_df[''] = range(1, len(cx_inner_cnp_df) + 1)
@@ -357,3 +362,174 @@ class DataProcessor:
         except Exception as e:
             print(f"Error exporting to Excel: {str(e)}")
             return "", ""
+    
+    def _calculate_tariffs_for_shipments(self, merged_df: pd.DataFrame) -> dict:
+        """
+        Calculate tariffs for all shipments using enhanced tariff system
+        
+        Args:
+            merged_df: Merged CNP + IODA data
+            
+        Returns:
+            dict: Contains lists for tariff_amounts, categories, services, rates_used, methods
+        """
+        try:
+            print("Calculating tariffs using enhanced tariff system...")
+            
+            # Import here to avoid circular imports
+            from models import TariffRate
+            from datetime import datetime, date
+            
+            results = {
+                'tariff_amounts': [],
+                'categories': [],
+                'services': [],
+                'rates_used': [],
+                'methods': []
+            }
+            
+            for _, row in merged_df.iterrows():
+                # Extract shipment details
+                origin = row.get('Host Origin Station', '')
+                destination = row.get('Host Destination Station', '')
+                declared_value = row.get('Customs Declared Value', 0)
+                
+                # Convert declared value to float
+                try:
+                    declared_value = float(declared_value) if pd.notnull(declared_value) else 0
+                except (ValueError, TypeError):
+                    declared_value = 0
+                
+                # Derive goods category from declared content
+                category = self._derive_goods_category(row.get('Content', ''))
+                
+                # Derive postal service (for now, use default or try to extract from data)
+                service = self._derive_postal_service(row)
+                
+                # Use arrival date or current date for tariff calculation
+                ship_date = self._parse_shipment_date(row.get('Arrival Date', ''))
+                
+                # Calculate tariff using enhanced system
+                if declared_value > 0 and origin and destination:
+                    tariff_result = TariffRate.calculate_tariff_for_shipment(
+                        origin, destination, declared_value, category, service, ship_date
+                    )
+                    
+                    results['tariff_amounts'].append(round(tariff_result['tariff_amount'], 2))
+                    results['categories'].append(category)
+                    results['services'].append(service)
+                    results['rates_used'].append(
+                        tariff_result['rate_used'].tariff_rate if tariff_result['rate_used'] else 0.8
+                    )
+                    results['methods'].append(
+                        'configured' if not tariff_result['fallback_used'] else 'fallback'
+                    )
+                else:
+                    # No valid data for calculation
+                    results['tariff_amounts'].append(0)
+                    results['categories'].append('Unknown')
+                    results['services'].append('*')
+                    results['rates_used'].append(0)
+                    results['methods'].append('no_data')
+            
+            print(f"Completed tariff calculation for {len(results['tariff_amounts'])} shipments")
+            configured_count = sum(1 for method in results['methods'] if method == 'configured')
+            fallback_count = sum(1 for method in results['methods'] if method == 'fallback')
+            print(f"Used configured rates: {configured_count}, Used fallback: {fallback_count}")
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error calculating tariffs: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            # Return default values in case of error
+            row_count = len(merged_df)
+            return {
+                'tariff_amounts': [0] * row_count,
+                'categories': ['Unknown'] * row_count,
+                'services': ['*'] * row_count,
+                'rates_used': [0.8] * row_count,
+                'methods': ['error'] * row_count
+            }
+    
+    def _derive_goods_category(self, declared_content: str) -> str:
+        """
+        Derive goods category from declared content
+        
+        Args:
+            declared_content: The declared content description
+            
+        Returns:
+            str: Derived category
+        """
+        if not declared_content:
+            return '*'
+        
+        content_lower = str(declared_content).lower()
+        
+        # Simple category mapping based on keywords
+        if any(word in content_lower for word in ['document', 'paper', 'letter', 'bill', 'invoice']):
+            return 'Documents'
+        elif any(word in content_lower for word in ['gift', 'personal', 'clothing', 'book', 'toy']):
+            return 'Personal Items'
+        elif any(word in content_lower for word in ['electronic', 'phone', 'computer', 'gadget']):
+            return 'Electronics'
+        elif any(word in content_lower for word in ['medicine', 'pharmaceutical', 'drug', 'medical']):
+            return 'Pharmaceuticals'
+        elif any(word in content_lower for word in ['food', 'snack', 'supplement', 'nutrition']):
+            return 'Food & Supplements'
+        else:
+            return 'General Merchandise'
+    
+    def _derive_postal_service(self, row: pd.Series) -> str:
+        """
+        Derive postal service type from shipment data
+        
+        Args:
+            row: Shipment data row
+            
+        Returns:
+            str: Derived service type
+        """
+        # For now, use default. In future, this could be derived from:
+        # - Tracking number patterns
+        # - Service codes in the data
+        # - Weight/size thresholds
+        # - Customer service selection
+        
+        # Check if there are any service indicators in the data
+        tracking = str(row.get('Tracking Number', '')).upper()
+        
+        if tracking.startswith('E') and 'CN' in tracking:
+            return 'EMS'
+        elif tracking.startswith('L') or tracking.startswith('R'):
+            return 'Registered Mail'
+        else:
+            return '*'  # Default to wildcard
+    
+    def _parse_shipment_date(self, date_str: str) -> date:
+        """
+        Parse shipment date from various formats
+        
+        Args:
+            date_str: Date string from shipment data
+            
+        Returns:
+            date: Parsed date or today's date if parsing fails
+        """
+        if not date_str:
+            return date.today()
+        
+        try:
+            # Try common date formats
+            for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d %H:%M:%S']:
+                try:
+                    return datetime.strptime(str(date_str)[:10], fmt[:10]).date()
+                except ValueError:
+                    continue
+        except:
+            pass
+        
+        return date.today()

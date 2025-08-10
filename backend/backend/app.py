@@ -98,6 +98,12 @@ def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataF
             number_of_packets=str(row.get('Number of Packet under same receptacle', '')),
             tariff_amount=str(row.get('Tariff amount', '')),
             
+            # Enhanced tariff fields
+            declared_content_category=str(row.get('Declared content category', '')),
+            postal_service_type=str(row.get('Postal service type', '')),
+            tariff_rate_used=row.get('Tariff rate used') if pd.notnull(row.get('Tariff rate used')) else None,
+            tariff_calculation_method=str(row.get('Tariff calculation method', '')),
+            
             # CBD export derived fields
             carrier_code=cbd_data.get('carrier_code', ''),
             flight_trip_number=cbd_data.get('flight_trip_number', ''),
@@ -197,11 +203,14 @@ def upload_cnp_file():
 
 @app.route('/historical-data', methods=['POST'])
 def get_historical_data():
-    """Get historical processed shipment data - NO FRONTEND PROCESSING"""
+    """Get historical processed shipment data with enhanced filtering - NO FRONTEND PROCESSING"""
     try:
         data = request.json
         start_date = data.get('startDate')
         end_date = data.get('endDate')
+        goods_category = data.get('goodsCategory')
+        postal_service = data.get('postalService')
+        calculation_method = data.get('calculationMethod')
 
         # Query the database
         query = ProcessedShipment.query
@@ -216,6 +225,18 @@ def get_historical_data():
                     func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
                 )
             )
+        
+        # Enhanced filtering by goods category
+        if goods_category and goods_category != '*':
+            query = query.filter(ProcessedShipment.declared_content_category == goods_category)
+        
+        # Enhanced filtering by postal service
+        if postal_service and postal_service != '*':
+            query = query.filter(ProcessedShipment.postal_service_type == postal_service)
+        
+        # Enhanced filtering by calculation method
+        if calculation_method and calculation_method != 'all':
+            query = query.filter(ProcessedShipment.tariff_calculation_method == calculation_method)
 
         # Execute query and return RAW database records
         entries = query.all()
@@ -321,7 +342,7 @@ def generate_cbd():
 
 @app.route('/get-analytics-data', methods=['GET', 'POST'])
 def get_analytics_data():
-    """Get analytics data for dashboard - BACKEND PROCESSED ONLY"""
+    """Get analytics data for dashboard with enhanced filtering - BACKEND PROCESSED ONLY"""
     try:
         # Get query parameters for date filtering
         query = ProcessedShipment.query
@@ -330,6 +351,9 @@ def get_analytics_data():
             data = request.json or {}
             start_date = data.get('startDate')
             end_date = data.get('endDate')
+            goods_category = data.get('goodsCategory')
+            postal_service = data.get('postalService')
+            calculation_method = data.get('calculationMethod')  # 'configured', 'fallback', or 'all'
             
             if start_date and end_date:
                 # Filter by arrival_date field (same logic as historical-data endpoint)
@@ -341,6 +365,18 @@ def get_analytics_data():
                         func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
                     )
                 )
+            
+            # Enhanced filtering by goods category
+            if goods_category and goods_category != '*':
+                query = query.filter(ProcessedShipment.declared_content_category == goods_category)
+            
+            # Enhanced filtering by postal service
+            if postal_service and postal_service != '*':
+                query = query.filter(ProcessedShipment.postal_service_type == postal_service)
+            
+            # Enhanced filtering by calculation method
+            if calculation_method and calculation_method != 'all':
+                query = query.filter(ProcessedShipment.tariff_calculation_method == calculation_method)
         
         # Execute query
         entries = query.all()
@@ -373,6 +409,9 @@ def get_analytics_data():
         currencies = {}
         destination_breakdown = {}
         carrier_breakdown = {}
+        category_breakdown = {}
+        service_breakdown = {}
+        calculation_method_breakdown = {}
         
         for entry in entries:
             # Weight calculation - handle all forms of invalid values
@@ -444,6 +483,38 @@ def get_analytics_data():
                     if entry.currency not in currencies:
                         currencies[entry.currency] = 0
                     currencies[entry.currency] += 1
+            
+            # Category breakdown
+            if entry.declared_content_category:
+                category = entry.declared_content_category
+                if category not in category_breakdown:
+                    category_breakdown[category] = {"count": 0, "weight": 0, "value": 0, "tariff": 0}
+                category_breakdown[category]["count"] += 1
+                category_breakdown[category]["weight"] += weight
+                if declared_val > 0:
+                    category_breakdown[category]["value"] += declared_val
+                category_breakdown[category]["tariff"] += tariff
+            
+            # Service breakdown
+            if entry.postal_service_type:
+                service = entry.postal_service_type
+                if service not in service_breakdown:
+                    service_breakdown[service] = {"count": 0, "weight": 0, "value": 0, "tariff": 0}
+                service_breakdown[service]["count"] += 1
+                service_breakdown[service]["weight"] += weight
+                if declared_val > 0:
+                    service_breakdown[service]["value"] += declared_val
+                service_breakdown[service]["tariff"] += tariff
+            
+            # Calculation method breakdown
+            if entry.tariff_calculation_method:
+                method = entry.tariff_calculation_method
+                if method not in calculation_method_breakdown:
+                    calculation_method_breakdown[method] = {"count": 0, "value": 0, "tariff": 0}
+                calculation_method_breakdown[method]["count"] += 1
+                if declared_val > 0:
+                    calculation_method_breakdown[method]["value"] += declared_val
+                calculation_method_breakdown[method]["tariff"] += tariff
         
         # Format breakdown data
         dest_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
@@ -451,6 +522,15 @@ def get_analytics_data():
         carrier_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
                         "value": round(v["value"], 2)} for k, v in carrier_breakdown.items()]
         currency_data = [{"name": k, "count": v} for k, v in currencies.items()]
+        category_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
+                         "value": round(v["value"], 2), "tariff": round(v["tariff"], 2)} 
+                         for k, v in category_breakdown.items()]
+        service_data = [{"name": k, "count": v["count"], "weight": round(v["weight"], 2), 
+                        "value": round(v["value"], 2), "tariff": round(v["tariff"], 2)} 
+                        for k, v in service_breakdown.items()]
+        method_data = [{"name": k, "count": v["count"], "value": round(v["value"], 2), 
+                       "tariff": round(v["tariff"], 2)} 
+                       for k, v in calculation_method_breakdown.items()]
         
         return jsonify({
             "analytics": {
@@ -460,12 +540,17 @@ def get_analytics_data():
                 "total_tariff": round(total_tariff, 2),
                 "unique_destinations": len(destinations),
                 "unique_carriers": len(carriers),
-                "unique_receptacles": len(receptacles)
+                "unique_receptacles": len(receptacles),
+                "unique_categories": len(category_breakdown),
+                "unique_services": len(service_breakdown)
             },
             "breakdown": {
                 "by_destination": dest_data,
                 "by_carrier": carrier_data,
-                "by_currency": currency_data
+                "by_currency": currency_data,
+                "by_category": category_data,
+                "by_service": service_data,
+                "by_calculation_method": method_data
             }
         })
         
@@ -600,14 +685,37 @@ def create_tariff_rate():
         data = request.json
         origin = data.get('origin_country')
         destination = data.get('destination_country')
+        goods_category = data.get('goods_category', '*')
+        postal_service = data.get('postal_service', '*')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
         
         if not origin or not destination:
             return jsonify({'error': 'Origin and destination countries are required'}), 400
         
-        # Check if rate already exists
+        # Parse dates
+        from datetime import datetime, date
+        if start_date:
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        else:
+            start_date = date.today()
+        
+        if end_date:
+            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+        else:
+            end_date = date(2099, 12, 31)
+        
+        if start_date >= end_date:
+            return jsonify({'error': 'Start date must be before end date'}), 400
+        
+        # Check if rate already exists for this specific combination
         existing_rate = TariffRate.query.filter_by(
             origin_country=origin,
-            destination_country=destination
+            destination_country=destination,
+            goods_category=goods_category,
+            postal_service=postal_service,
+            start_date=start_date,
+            end_date=end_date
         ).first()
         
         if existing_rate:
@@ -636,6 +744,10 @@ def create_tariff_rate():
             new_rate = TariffRate(
                 origin_country=origin,
                 destination_country=destination,
+                goods_category=goods_category,
+                postal_service=postal_service,
+                start_date=start_date,
+                end_date=end_date,
                 tariff_rate=tariff_rate,
                 minimum_tariff=data.get('minimum_tariff', 0.0),
                 maximum_tariff=data.get('maximum_tariff'),
@@ -748,24 +860,53 @@ def get_tariff_system_defaults():
 
 @app.route('/calculate-tariff', methods=['POST'])
 def calculate_tariff():
-    """Calculate tariff for a given route and declared value"""
+    """Calculate tariff for a given route and declared value with enhanced parameters"""
     try:
         data = request.json
         origin = data.get('origin_country')
         destination = data.get('destination_country')
         declared_value = float(data.get('declared_value', 0))
+        goods_category = data.get('goods_category', '*')
+        postal_service = data.get('postal_service', '*')
+        ship_date = data.get('ship_date')
         
         if not origin or not destination or declared_value <= 0:
             return jsonify({'error': 'Valid origin, destination, and declared value are required'}), 400
         
-        # Find tariff rate for this route
-        tariff_rate = TariffRate.query.filter_by(
-            origin_country=origin,
-            destination_country=destination,
-            is_active=True
-        ).first()
+        # Parse ship_date if provided
+        from datetime import datetime, date
+        if ship_date:
+            try:
+                ship_date = datetime.strptime(ship_date, '%Y-%m-%d').date()
+            except:
+                ship_date = date.today()
+        else:
+            ship_date = date.today()
         
-        if not tariff_rate:
+        # Use the enhanced tariff calculation
+        result = TariffRate.calculate_tariff_for_shipment(
+            origin, destination, declared_value, goods_category, postal_service, ship_date
+        )
+        
+        if result['rate_used']:
+            rate = result['rate_used']
+            return jsonify({
+                'origin_country': origin,
+                'destination_country': destination,
+                'goods_category': goods_category,
+                'postal_service': postal_service,
+                'ship_date': ship_date.isoformat(),
+                'declared_value': declared_value,
+                'tariff_rate': rate.tariff_rate,
+                'minimum_tariff': rate.minimum_tariff,
+                'maximum_tariff': rate.maximum_tariff,
+                'calculated_tariff': result['tariff_amount'],
+                'currency': rate.currency,
+                'rate_details': rate.to_dict(),
+                'calculation_method': 'configured'
+            })
+        else:
+            # No configured rate found, used fallback
             # Calculate suggested rate from historical data if available
             historical_query = db.session.query(
                 func.sum(func.cast(ProcessedShipment.declared_value, db.Float)).label('total_declared_value'),
@@ -778,36 +919,143 @@ def calculate_tariff():
             ).first()
             
             suggested_rate = 0.0
-            suggested_tariff = 0.0
-            
             if (historical_query.total_declared_value and 
                 historical_query.total_declared_value > 0 and 
                 historical_query.total_tariff_amount):
                 suggested_rate = historical_query.total_tariff_amount / historical_query.total_declared_value
-                suggested_tariff = declared_value * suggested_rate
             
             return jsonify({
-                'error': f'No tariff rate configured for route {origin} → {destination}',
-                'suggested_rate': round(suggested_rate, 4) if suggested_rate > 0 else None,
-                'suggested_tariff': round(suggested_tariff, 2) if suggested_tariff > 0 else None,
-                'message': 'Please configure a tariff rate for this route in the Tariff Management section'
-            }), 404
+                'origin_country': origin,
+                'destination_country': destination,
+                'goods_category': goods_category,
+                'postal_service': postal_service,
+                'ship_date': ship_date.isoformat(),
+                'declared_value': declared_value,
+                'calculated_tariff': result['tariff_amount'],
+                'calculation_method': 'fallback',
+                'fallback_rate': 0.8,
+                'historical_rate': round(suggested_rate, 4) if suggested_rate > 0 else None,
+                'message': 'No configured rate found, used fallback calculation (80%)',
+                'suggestion': 'Configure a specific tariff rate for this route/category/service combination'
+            })
         
-        calculated_tariff = tariff_rate.calculate_tariff(declared_value)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-categories', methods=['GET'])
+def get_tariff_categories():
+    """Get all available goods categories from configured rates and processed shipments"""
+    try:
+        # Get categories from configured rates
+        rate_categories = db.session.query(TariffRate.goods_category).filter(
+            TariffRate.is_active == True,
+            TariffRate.goods_category != '*'
+        ).distinct().all()
+        
+        # Get categories from processed shipments
+        shipment_categories = db.session.query(ProcessedShipment.declared_content_category).filter(
+            ProcessedShipment.declared_content_category.isnot(None),
+            ProcessedShipment.declared_content_category != ''
+        ).distinct().all()
+        
+        categories = set(['*'])  # Always include wildcard
+        categories.update([c[0] for c in rate_categories if c[0]])
+        categories.update([c[0] for c in shipment_categories if c[0]])
         
         return jsonify({
-            'origin_country': origin,
-            'destination_country': destination,
-            'declared_value': declared_value,
-            'tariff_rate': tariff_rate.tariff_rate,
-            'minimum_tariff': tariff_rate.minimum_tariff,
-            'maximum_tariff': tariff_rate.maximum_tariff,
-            'calculated_tariff': calculated_tariff,
-            'currency': tariff_rate.currency
+            'categories': sorted(list(categories)),
+            'total_categories': len(categories)
         })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-services', methods=['GET'])
+def get_tariff_services():
+    """Get all available postal services from configured rates and processed shipments"""
+    try:
+        # Get services from configured rates
+        rate_services = db.session.query(TariffRate.postal_service).filter(
+            TariffRate.is_active == True,
+            TariffRate.postal_service != '*'
+        ).distinct().all()
+        
+        # Get services from processed shipments
+        shipment_services = db.session.query(ProcessedShipment.postal_service_type).filter(
+            ProcessedShipment.postal_service_type.isnot(None),
+            ProcessedShipment.postal_service_type != ''
+        ).distinct().all()
+        
+        services = set(['*'])  # Always include wildcard
+        services.update([s[0] for s in rate_services if s[0]])
+        services.update([s[0] for s in shipment_services if s[0]])
+        
+        return jsonify({
+            'services': sorted(list(services)),
+            'total_services': len(services)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test-enhanced-filters', methods=['POST'])
+def test_enhanced_filters():
+    """Test endpoint for enhanced filtering capabilities"""
+    try:
+        data = request.json or {}
+        
+        # Build query with all possible filters
+        query = ProcessedShipment.query
+        filters_applied = []
+        
+        # Date filtering
+        start_date = data.get('startDate')
+        end_date = data.get('endDate')
+        if start_date and end_date:
+            query = query.filter(
+                and_(
+                    ProcessedShipment.arrival_date.isnot(None),
+                    ProcessedShipment.arrival_date != '',
+                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
+                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
+                )
+            )
+            filters_applied.append(f"Date: {start_date} to {end_date}")
+        
+        # Category filtering
+        goods_category = data.get('goodsCategory')
+        if goods_category and goods_category != '*':
+            query = query.filter(ProcessedShipment.declared_content_category == goods_category)
+            filters_applied.append(f"Category: {goods_category}")
+        
+        # Service filtering
+        postal_service = data.get('postalService')
+        if postal_service and postal_service != '*':
+            query = query.filter(ProcessedShipment.postal_service_type == postal_service)
+            filters_applied.append(f"Service: {postal_service}")
+        
+        # Method filtering
+        calculation_method = data.get('calculationMethod')
+        if calculation_method and calculation_method != 'all':
+            query = query.filter(ProcessedShipment.tariff_calculation_method == calculation_method)
+            filters_applied.append(f"Method: {calculation_method}")
+        
+        # Execute query
+        results = query.all()
+        
+        return jsonify({
+            'success': True,
+            'filters_applied': filters_applied,
+            'total_results': len(results),
+            'message': f'Enhanced filtering test completed. Applied {len(filters_applied)} filters, found {len(results)} matching records.',
+            'sample_data': [result.to_dict() for result in results[:3]] if results else []
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/cbp-analytics', methods=['GET', 'POST'])
 def get_cbp_analytics():

@@ -4,13 +4,17 @@ from datetime import datetime
 db = SQLAlchemy()
 
 class TariffRate(db.Model):
-    """Model for storing tariff rates between countries/stations"""
+    """Model for storing tariff rates between countries/stations with goods category, postal service, and date ranges"""
     __tablename__ = 'tariff_rates'
     __table_args__ = (
         db.UniqueConstraint(
             'origin_country', 
             'destination_country',
-            name='uix_tariff_route'
+            'goods_category',
+            'postal_service',
+            'start_date',
+            'end_date',
+            name='uix_tariff_route_extended'
         ),
     )
 
@@ -21,6 +25,14 @@ class TariffRate(db.Model):
     # Route definition
     origin_country = db.Column(db.String(100), nullable=False)  # Origin country/station
     destination_country = db.Column(db.String(100), nullable=False)  # Destination country/station
+    
+    # Enhanced tariff classification
+    goods_category = db.Column(db.String(100), default='*')  # Goods category (e.g., 'Documents', 'Merchandise', '*' for all)
+    postal_service = db.Column(db.String(100), default='*')  # Postal service (e.g., 'EMS', 'E-packet', '*' for all)
+    
+    # Date range for rate validity
+    start_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now().date())  # Rate validity start
+    end_date = db.Column(db.Date, nullable=False, default=lambda: datetime(2099, 12, 31).date())  # Rate validity end
     
     # Tariff configuration
     tariff_rate = db.Column(db.Float, default=0.8)  # Tariff rate (e.g., 0.8 = 80%)
@@ -40,6 +52,10 @@ class TariffRate(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else '',
             'origin_country': self.origin_country,
             'destination_country': self.destination_country,
+            'goods_category': self.goods_category,
+            'postal_service': self.postal_service,
+            'start_date': self.start_date.isoformat() if self.start_date else '',
+            'end_date': self.end_date.isoformat() if self.end_date else '',
             'tariff_rate': self.tariff_rate,
             'minimum_tariff': self.minimum_tariff,
             'maximum_tariff': self.maximum_tariff,
@@ -64,6 +80,95 @@ class TariffRate(db.Model):
             tariff_amount = self.maximum_tariff
         
         return round(tariff_amount, 2)
+    
+    @staticmethod
+    def find_applicable_rate(origin, destination, goods_category=None, postal_service=None, ship_date=None):
+        """
+        Find the most applicable tariff rate for given parameters
+        Prioritizes exact matches over wildcard matches
+        
+        Args:
+            origin: Origin country/station
+            destination: Destination country/station
+            goods_category: Goods category (optional, defaults to '*')
+            postal_service: Postal service (optional, defaults to '*')
+            ship_date: Shipment date (optional, defaults to today)
+        
+        Returns:
+            TariffRate: Most specific matching rate or None
+        """
+        from datetime import date
+        
+        if ship_date is None:
+            ship_date = date.today()
+        if goods_category is None:
+            goods_category = '*'
+        if postal_service is None:
+            postal_service = '*'
+        
+        # Query active rates for matching origin/destination
+        base_query = TariffRate.query.filter_by(
+            origin_country=origin,
+            destination_country=destination,
+            is_active=True
+        )
+        
+        # Filter by date range
+        valid_rates = base_query.filter(
+            TariffRate.start_date <= ship_date,
+            TariffRate.end_date >= ship_date
+        ).all()
+        
+        # Filter by goods_category (exact match or wildcard)
+        category_matches = [r for r in valid_rates 
+                          if r.goods_category in (goods_category, '*')]
+        
+        # Filter by postal_service (exact match or wildcard)
+        service_matches = [r for r in category_matches 
+                         if r.postal_service in (postal_service, '*')]
+        
+        if not service_matches:
+            return None
+        
+        # Sort by specificity (most specific first)
+        # Priority: exact category & service > exact category only > exact service only > wildcards
+        def specificity_score(rate):
+            score = 0
+            if rate.goods_category != '*':
+                score += 2
+            if rate.postal_service != '*':
+                score += 1
+            return score
+        
+        service_matches.sort(key=specificity_score, reverse=True)
+        return service_matches[0]
+    
+    @staticmethod
+    def calculate_tariff_for_shipment(origin, destination, declared_value, 
+                                    goods_category=None, postal_service=None, ship_date=None):
+        """
+        Calculate tariff for a shipment using the most applicable rate
+        
+        Returns:
+            dict: {'tariff_amount': float, 'rate_used': TariffRate or None, 'fallback_used': bool}
+        """
+        rate = TariffRate.find_applicable_rate(origin, destination, goods_category, postal_service, ship_date)
+        
+        if rate:
+            return {
+                'tariff_amount': rate.calculate_tariff(declared_value),
+                'rate_used': rate,
+                'fallback_used': False
+            }
+        else:
+            # Fallback: use historical average or default rate (80%)
+            fallback_rate = 0.8
+            tariff_amount = declared_value * fallback_rate
+            return {
+                'tariff_amount': round(tariff_amount, 2),
+                'rate_used': None,
+                'fallback_used': True
+            }
 
 class ProcessedShipment(db.Model):
     """Model for storing processed CHINAPOST export data (the complete workflow output)"""
@@ -114,7 +219,13 @@ class ProcessedShipment(db.Model):
     declared_value = db.Column(db.String(50))  # Declared Value
     currency = db.Column(db.String(10))  # Currency
     number_of_packets = db.Column(db.String(50))  # Number of Packet under same receptacle
-    tariff_amount = db.Column(db.String(50))  # Tariff amount (80% of declared value)
+    tariff_amount = db.Column(db.String(50))  # Tariff amount (calculated from rates)
+    
+    # Enhanced tariff fields
+    declared_content_category = db.Column(db.String(100))  # Derived goods category for tariff calculation
+    postal_service_type = db.Column(db.String(100))  # Postal service type for tariff calculation
+    tariff_rate_used = db.Column(db.Float)  # Actual rate used for calculation
+    tariff_calculation_method = db.Column(db.String(50))  # 'configured' or 'fallback'
     
     # CBD export derived fields (computed from CHINAPOST data)
     carrier_code = db.Column(db.String(50))  # Highest leg carrier for CBD
@@ -171,6 +282,10 @@ class ProcessedShipment(db.Model):
             'currency': self._clean_value(self.currency),
             'number_of_packets': self._clean_value(self.number_of_packets),
             'tariff_amount': self._clean_value(self.tariff_amount),
+            'declared_content_category': self._clean_value(self.declared_content_category),
+            'postal_service_type': self._clean_value(self.postal_service_type),
+            'tariff_rate_used': self.tariff_rate_used,
+            'tariff_calculation_method': self._clean_value(self.tariff_calculation_method),
             
             # CBD export fields
             'carrier_code': self._clean_value(self.carrier_code),
