@@ -182,8 +182,18 @@ def upload_cnp_file():
                 new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
                 db.session.commit()
                 print(f"Saved to database: {new_entries} new entries, {skipped_entries} duplicates skipped")
+                
+                # Calculate tariff method statistics
+                configured_count = 0
+                fallback_count = 0
+                if 'Tariff calculation method' in chinapost_df.columns:
+                    method_counts = chinapost_df['Tariff calculation method'].value_counts()
+                    configured_count = method_counts.get('configured', 0)
+                    fallback_count = method_counts.get('fallback', 0)
+                
             else:
                 new_entries, skipped_entries = 0, 0
+                configured_count, fallback_count = 0, 0
             
             return jsonify({
                 "success": True,
@@ -200,7 +210,13 @@ def upload_cnp_file():
                 },
                 "total_records": len(chinapost_df) if chinapost_df is not None else 0,
                 "new_entries": new_entries,
-                "skipped_duplicates": skipped_entries
+                "skipped_duplicates": skipped_entries,
+                "tariff_method_stats": {
+                    "configured_rates": configured_count,
+                    "fallback_rates": fallback_count,
+                    "configured_percentage": round((configured_count / (configured_count + fallback_count) * 100), 2) if (configured_count + fallback_count) > 0 else 0,
+                    "fallback_percentage": round((fallback_count / (configured_count + fallback_count) * 100), 2) if (configured_count + fallback_count) > 0 else 0
+                }
             })
             
         finally:
@@ -877,23 +893,37 @@ def update_tariff_rate(rate_id):
         if start_date >= end_date:
             return jsonify({'error': 'Start date must be before end date'}), 400
         
-        # Check for overlapping rates (excluding this rate)
-        overlapping_rates = TariffRate.check_overlapping_rates(
-            origin, destination, goods_category, postal_service, start_date, end_date, exclude_id=rate_id
+        # Get weight range values
+        min_weight = data.get('min_weight', tariff_rate.min_weight)
+        max_weight = data.get('max_weight', tariff_rate.max_weight)
+        
+        # Validate weight range
+        if min_weight < 0 or max_weight < 0:
+            return jsonify({'error': 'Weight values cannot be negative'}), 400
+        if min_weight > max_weight:
+            return jsonify({'error': 'Minimum weight cannot be greater than maximum weight'}), 400
+        
+        # Check for overlapping weight ranges (excluding this rate)
+        overlapping_weight_rates = TariffRate.check_weight_range_overlap(
+            origin, destination, goods_category, postal_service, start_date, end_date, 
+            min_weight, max_weight, exclude_id=rate_id
         )
         
-        if overlapping_rates:
+        if overlapping_weight_rates:
             overlapping_info = []
-            for rate in overlapping_rates:
+            for rate in overlapping_weight_rates:
                 overlapping_info.append({
                     'id': rate.id,
                     'start_date': rate.start_date.isoformat(),
                     'end_date': rate.end_date.isoformat(),
-                    'rate': rate.tariff_rate
+                    'min_weight': rate.min_weight,
+                    'max_weight': rate.max_weight,
+                    'tariff_rate': rate.tariff_rate
                 })
             return jsonify({
-                'error': 'Updated date range would overlap with existing rates',
-                'overlapping_rates': overlapping_info
+                'error': 'Updated weight and date ranges would overlap with existing rates',
+                'overlapping_rates': overlapping_info,
+                'message': 'Please adjust the weight range or date range to avoid conflicts with existing rates.'
             }), 400
         
         # Update all fields
@@ -903,8 +933,8 @@ def update_tariff_rate(rate_id):
         tariff_rate.postal_service = postal_service
         tariff_rate.start_date = start_date
         tariff_rate.end_date = end_date
-        tariff_rate.min_weight = data.get('min_weight', tariff_rate.min_weight)
-        tariff_rate.max_weight = data.get('max_weight', tariff_rate.max_weight)
+        tariff_rate.min_weight = min_weight
+        tariff_rate.max_weight = max_weight
         tariff_rate.tariff_rate = data.get('tariff_rate', tariff_rate.tariff_rate)
         tariff_rate.minimum_tariff = data.get('minimum_tariff', tariff_rate.minimum_tariff)
         tariff_rate.maximum_tariff = data.get('maximum_tariff', tariff_rate.maximum_tariff)
@@ -1509,13 +1539,41 @@ def get_classification_config():
     try:
         from classification_config import get_category_mappings, get_service_patterns
         
+        # Convert lambda functions to readable descriptions
+        service_pattern_descriptions = {
+            'EMS': [
+                'Tracking starts with "E" and contains "CN"',
+                'Contains "EMS" in tracking number',
+                'Starts with "EE" or "EP"',
+                'Starts with "CX" and has 13 characters (China EMS format)'
+            ],
+            'Registered Mail': [
+                'Tracking starts with "R" and contains "CN"',
+                'Tracking starts with "L" and contains "CN"',
+                'Contains "REG" in tracking number',
+                'Starts with "RR" or "RL"'
+            ],
+            'Air Mail': [
+                'Tracking starts with "C" and contains "CN"',
+                'Contains "AIR" in tracking number',
+                'Starts with "CP" or "CA"'
+            ],
+            'E-packet': [
+                'Tracking starts with "L" and has 13 characters',
+                'Contains "PACKET" in tracking number',
+                'Starts with "LP" or "LK"'
+            ],
+            'Surface Mail': [
+                'Tracking starts with "N" and contains "CN"',
+                'Contains "SURFACE" or "SEA" in tracking number',
+                'Starts with "NS" or "NM"'
+            ]
+        }
+        
         return jsonify({
             'success': True,
             'category_mappings': get_category_mappings(),
-            'service_patterns': {
-                name: [str(pattern) for pattern in patterns] 
-                for name, patterns in get_service_patterns().items()
-            }
+            'service_patterns': service_pattern_descriptions
         })
     except Exception as e:
         return jsonify({

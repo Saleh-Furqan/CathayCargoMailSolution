@@ -277,7 +277,8 @@ const DataIngestionSimple: React.FC = () => {
                   Successfully processed {result.total_records} records with {result.new_entries} new entries added to database
                 </p>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Export Status */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="p-3 rounded-md bg-green-100 border border-green-200">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium">CHINAPOST Export</span>
@@ -297,6 +298,41 @@ const DataIngestionSimple: React.FC = () => {
                     </p>
                   </div>
                 </div>
+
+                {/* Tariff Method Statistics */}
+                {result.tariff_method_stats && (
+                  <div className="border-t pt-4">
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">Tariff Calculation Methods</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-emerald-800">Configured Rates</span>
+                          <span className="text-sm font-bold text-emerald-700">
+                            {result.tariff_method_stats.configured_percentage}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-emerald-600 mt-1">
+                          {result.tariff_method_stats.configured_rates} shipments using specific rate configurations
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-md bg-amber-50 border border-amber-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-amber-800">System Fallback</span>
+                          <span className="text-sm font-bold text-amber-700">
+                            {result.tariff_method_stats.fallback_percentage}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-600 mt-1">
+                          {result.tariff_method_stats.fallback_rates} shipments using system default rate
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2">
+                      <strong>Higher configured rates percentage indicates better route/category coverage.</strong> 
+                      Consider adding more specific tariff configurations for common routes to reduce fallback usage.
+                    </p>
+                  </div>
+                )}
 
                 <div className="mt-4 space-x-3">
                   <button

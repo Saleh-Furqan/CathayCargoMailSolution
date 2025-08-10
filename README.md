@@ -221,13 +221,20 @@ npm run preview  # Or serve with nginx/apache
 📤 Data Processing (/data-processing)  
 ├── CNP file upload and processing
 ├── IODA data integration
-└── Automated tariff calculation
+├── Automated tariff calculation
+└── Fallback rate usage summary
 
 ⚙️  Tariff Management (/tariff-management)
 ├── Multi-dimensional rate configuration
 ├── Weight-based filtering setup
 ├── Batch tariff recalculation
 └── Rate testing calculator
+
+🔧 Classification Management (/classification-management)
+├── Goods category keyword management
+├── Classification testing tool
+├── Postal service pattern viewing
+└── Real-time classification validation
 ```
 
 ### 3. Core Workflows
@@ -268,6 +275,22 @@ npm run preview  # Or serve with nginx/apache
 3. View calculated tariff with explanation:
    - Green = Configured rate applied
    - Yellow = System fallback rate used
+```
+
+#### D. Manage Classification Rules
+```
+1. Navigate to "Classification Management"
+2. Test Classification:
+   - Enter goods description text
+   - View predicted category and confidence
+   - See matched keywords
+3. Manage Categories:
+   - Add/remove keywords from existing categories
+   - Create new goods categories
+   - Keywords automatically classify shipment content
+4. Review Service Patterns:
+   - View postal service detection patterns
+   - Contact administrator for pattern modifications
 ```
 
 ### 4. Data Requirements
@@ -364,6 +387,37 @@ GET /health
 Response: { status: "healthy", timestamp }
 ```
 
+### Classification Management
+```http
+# Get classification configuration
+GET /classification-config
+Response: { category_mappings, service_patterns }
+
+# Test classification
+POST /classification-test
+Body: { content: "goods description" }
+Response: { category, confidence, matched_keywords }
+
+# Manage category keywords  
+GET /classification-categories
+Response: { categories: string[] }
+
+POST /classification-categories/:category/keywords
+Body: { keywords: string[] }
+Response: { success, message }
+
+DELETE /classification-categories/:category/keywords
+Body: { keywords: string[] }
+Response: { success, message }
+
+# View service patterns
+GET /classification-services
+Response: { services: string[] }
+
+GET /classification-services/:service
+Response: { patterns: string[] }
+```
+
 ### Analytics
 ```http
 GET /get-analytics-data
@@ -417,9 +471,10 @@ CathayCargoMailSolution/
 │   │   │   ├── Layout/           # App shell and navigation
 │   │   │   └── Dashboard/        # Analytics components  
 │   │   ├── pages/                # Route-level components
-│   │   │   ├── DataIngestion.tsx       # File upload and processing
-│   │   │   ├── TariffManagement.tsx    # Rate configuration
-│   │   │   └── Analytics.tsx           # Business intelligence
+│   │   │   ├── DataIngestionSimple.tsx     # File upload and processing
+│   │   │   ├── TariffManagement.tsx        # Rate configuration
+│   │   │   ├── ClassificationManagement.tsx # Category/service management
+│   │   │   └── HistoricalData.tsx          # Historical analytics
 │   │   ├── services/             # API integration layer
 │   │   │   └── api.ts           # HTTP client and endpoints
 │   │   └── types/               # TypeScript definitions

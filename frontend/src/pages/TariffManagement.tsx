@@ -55,6 +55,7 @@ interface TariffRateConfig {
 }
 
 interface EditingRate {
+  id?: number; // Optional for new rates
   origin: string;
   destination: string;
   goods_category: string;
@@ -153,6 +154,7 @@ const TariffManagement: React.FC = () => {
     const today = new Date().toISOString().split('T')[0];
     
     setEditingRate({
+      id: existing?.id, // Include ID for updates
       origin: route.origin,
       destination: route.destination,
       goods_category: existing?.goods_category || '*',
@@ -172,29 +174,56 @@ const TariffManagement: React.FC = () => {
     if (!editingRate) return;
 
     try {
-      const rateData = {
-        origin_country: editingRate.origin,
-        destination_country: editingRate.destination,
-        goods_category: editingRate.goods_category,
-        postal_service: editingRate.postal_service,
-        start_date: editingRate.start_date,
-        end_date: editingRate.end_date,
-        min_weight: editingRate.min_weight,
-        max_weight: editingRate.max_weight,
-        tariff_rate: editingRate.tariff_rate,
-        minimum_tariff: editingRate.minimum_tariff,
-        maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
-        notes: editingRate.notes
-      };
+      if (editingRate.id) {
+        // Update existing rate (exclude origin/destination)
+        const rateData = {
+          goods_category: editingRate.goods_category,
+          postal_service: editingRate.postal_service,
+          start_date: editingRate.start_date,
+          end_date: editingRate.end_date,
+          min_weight: editingRate.min_weight,
+          max_weight: editingRate.max_weight,
+          tariff_rate: editingRate.tariff_rate,
+          minimum_tariff: editingRate.minimum_tariff,
+          maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
+          notes: editingRate.notes
+        };
 
-      await apiService.createTariffRate(rateData);
-      showNotification(`Tariff rate saved for ${editingRate.origin} → ${editingRate.destination} (${editingRate.goods_category}/${editingRate.postal_service})`, 'success');
+        await apiService.updateTariffRate(editingRate.id, rateData);
+        showNotification(`Tariff rate updated for ${editingRate.origin} → ${editingRate.destination}`, 'success');
+      } else {
+        // Create new rate (include origin/destination)
+        const rateData = {
+          origin_country: editingRate.origin,
+          destination_country: editingRate.destination,
+          goods_category: editingRate.goods_category,
+          postal_service: editingRate.postal_service,
+          start_date: editingRate.start_date,
+          end_date: editingRate.end_date,
+          min_weight: editingRate.min_weight,
+          max_weight: editingRate.max_weight,
+          tariff_rate: editingRate.tariff_rate,
+          minimum_tariff: editingRate.minimum_tariff,
+          maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
+          notes: editingRate.notes
+        };
+
+        await apiService.createTariffRate(rateData);
+        showNotification(`Tariff rate created for ${editingRate.origin} → ${editingRate.destination}`, 'success');
+      }
       
       setEditingRate(null);
       fetchData(); // Refresh data
     } catch (error) {
       console.error('Error saving tariff rate:', error);
-      showNotification(`Error saving tariff rate: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Display detailed error information for weight range conflicts
+      if (errorMessage.includes('overlap')) {
+        showNotification(`Weight range conflict: ${errorMessage}. Please adjust the weight range or date range.`, 'error');
+      } else {
+        showNotification(`Error saving tariff rate: ${errorMessage}`, 'error');
+      }
     }
   };
 
@@ -713,16 +742,19 @@ const TariffManagement: React.FC = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Origin Country
-                  </label>
+                  <div className="flex items-center gap-1 mb-1">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Origin Country
+                    </label>
+                    <HelpCircle 
+                      className="h-3 w-3 text-gray-400 cursor-help" 
+                      title="Route fields cannot be edited. Delete and recreate the rate to change origin/destination."
+                    />
+                  </div>
                   <select
                     value={editingRate.origin}
-                    onChange={(e) => setEditingRate({
-                      ...editingRate,
-                      origin: e.target.value
-                    })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed opacity-60"
                   >
                     {uniqueStations.map(station => (
                       <option key={station} value={station}>{station}</option>
@@ -731,16 +763,19 @@ const TariffManagement: React.FC = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Destination Country
-                  </label>
+                  <div className="flex items-center gap-1 mb-1">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Destination Country
+                    </label>
+                    <HelpCircle 
+                      className="h-3 w-3 text-gray-400 cursor-help" 
+                      title="Route fields cannot be edited. Delete and recreate the rate to change origin/destination."
+                    />
+                  </div>
                   <select
                     value={editingRate.destination}
-                    onChange={(e) => setEditingRate({
-                      ...editingRate,
-                      destination: e.target.value
-                    })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed opacity-60"
                   >
                     {uniqueStations.map(station => (
                       <option key={station} value={station}>{station}</option>
