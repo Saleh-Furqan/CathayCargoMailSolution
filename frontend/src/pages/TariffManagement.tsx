@@ -10,7 +10,8 @@ import {
   AlertTriangle,
   CheckCircle,
   Calculator,
-  HelpCircle
+  HelpCircle,
+  Plus
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { 
@@ -133,13 +134,45 @@ const TariffManagement: React.FC = () => {
         apiService.getTariffServices()
       ]);
       
-      setRoutes(routesResponse.routes || []);
-      setConfiguredRates(ratesResponse.tariff_rates || []);
+      const baseRoutes = routesResponse.routes || [];
+      const configuredRatesData = ratesResponse.tariff_rates || [];
+      
+      // Create a map of existing routes for quick lookup
+      const existingRoutesMap = new Map();
+      baseRoutes.forEach((route: TariffRoute) => {
+        const key = `${route.origin}-${route.destination}`;
+        existingRoutesMap.set(key, route);
+      });
+      
+      // Add routes from configured rates that don't exist in shipment data
+      const allRoutes = [...baseRoutes];
+      configuredRatesData.forEach((rate: TariffRateConfig) => {
+        const key = `${rate.origin_country}-${rate.destination_country}`;
+        if (!existingRoutesMap.has(key)) {
+          // Create a synthetic route for the configured rate
+          const syntheticRoute: TariffRoute = {
+            origin: rate.origin_country,
+            destination: rate.destination_country,
+            route: `${rate.origin_country} → ${rate.destination_country}`,
+            shipment_count: 0,
+            total_declared_value: 0,
+            total_tariff_amount: 0,
+            historical_rate: 0.8, // Default fallback rate
+            configured_rate: rate,
+            has_configured_rate: true
+          };
+          allRoutes.push(syntheticRoute);
+          existingRoutesMap.set(key, syntheticRoute);
+        }
+      });
+      
+      setRoutes(allRoutes);
+      setConfiguredRates(configuredRatesData);
       setSystemDefaults(defaultsResponse);
       setAvailableCategories(categoriesResponse.categories || ['*']);
       setAvailableServices(servicesResponse.services || ['*']);
       
-      showNotification(`Loaded ${routesResponse.total_routes} routes and ${ratesResponse.total_rates} configured rates`, 'success');
+      showNotification(`Loaded ${allRoutes.length} routes (${baseRoutes.length} with shipments, ${allRoutes.length - baseRoutes.length} configured only) and ${ratesResponse.total_rates} configured rates`, 'success');
     } catch (error) {
       console.error('Error fetching tariff data:', error);
       showNotification('Error loading tariff data', 'error');
@@ -170,8 +203,35 @@ const TariffManagement: React.FC = () => {
     });
   };
 
+  const handleAddNewRate = () => {
+    const defaults = systemDefaults?.system_defaults;
+    const today = new Date().toISOString().split('T')[0];
+    
+    setEditingRate({
+      // No ID for new rates
+      origin: '',
+      destination: '',
+      goods_category: '*',
+      postal_service: '*',
+      start_date: today,
+      end_date: '2099-12-31',
+      min_weight: 0,
+      max_weight: 999999,
+      tariff_rate: defaults?.default_tariff_rate || 0.8,
+      minimum_tariff: defaults?.default_minimum_tariff || 0,
+      maximum_tariff: defaults?.suggested_maximum_tariff || 100,
+      notes: ''
+    });
+  };
+
   const handleSaveRate = async () => {
     if (!editingRate) return;
+
+    // Validation for new rates
+    if (!editingRate.id && (!editingRate.origin || !editingRate.destination)) {
+      showNotification('Please select both origin and destination countries', 'error');
+      return;
+    }
 
     try {
       if (editingRate.id) {
@@ -348,6 +408,14 @@ const TariffManagement: React.FC = () => {
         </div>
         
         <div className="flex items-center space-x-3">
+          <button
+            onClick={handleAddNewRate}
+            className="inline-flex items-center px-4 py-2 border border-cathay-teal text-cathay-teal bg-teal-50 rounded-md text-sm font-medium hover:bg-teal-100"
+            title="Add a new tariff rate configuration for any origin-destination route"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Tariff Rate
+          </button>
           <button
             onClick={handleBatchRecalculate}
             className="inline-flex items-center px-4 py-2 border border-orange-300 text-orange-700 bg-orange-50 rounded-md text-sm font-medium hover:bg-orange-100"
@@ -653,20 +721,29 @@ const TariffManagement: React.FC = () => {
                     <div>
                       <div className="text-sm font-medium text-gray-900">{route.route}</div>
                       <div className="text-xs text-gray-500">
-                        ${route.total_declared_value.toLocaleString()} declared value
+                        {route.shipment_count > 0 
+                          ? `$${route.total_declared_value.toLocaleString()} declared value`
+                          : 'No shipment data - configured rate only'
+                        }
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {route.shipment_count.toLocaleString()}
+                    {route.shipment_count > 0 ? route.shipment_count.toLocaleString() : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <span className="text-sm font-medium text-gray-900">
-                        {(route.historical_rate * 100).toFixed(1)}%
+                        {route.shipment_count > 0 
+                          ? `${(route.historical_rate * 100).toFixed(1)}%`
+                          : 'No data'
+                        }
                       </span>
                       <div className="text-xs text-gray-500">
-                        Based on {route.shipment_count} shipment{route.shipment_count !== 1 ? 's' : ''}
+                        {route.shipment_count > 0 
+                          ? `Based on ${route.shipment_count} shipment${route.shipment_count !== 1 ? 's' : ''}`
+                          : 'No shipment history'
+                        }
                       </div>
                     </div>
                   </td>
@@ -687,7 +764,10 @@ const TariffManagement: React.FC = () => {
                       <div>
                         <span className="text-sm text-orange-600 font-medium">Using Fallback</span>
                         <div className="text-xs text-gray-500">
-                          System will use {(route.historical_rate * 100).toFixed(1)}% rate
+                          {route.shipment_count > 0 
+                            ? `System will use ${(route.historical_rate * 100).toFixed(1)}% rate`
+                            : 'System will use 80% default rate'
+                          }
                         </div>
                       </div>
                     )}
@@ -733,11 +813,13 @@ const TariffManagement: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Configure Tariff Rate
+              {editingRate.id ? 'Configure Tariff Rate' : 'Add New Tariff Rate'}
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              {editingRate.origin} → {editingRate.destination}
-            </p>
+            {editingRate.id && (
+              <p className="text-sm text-gray-600 mb-4">
+                {editingRate.origin} → {editingRate.destination}
+              </p>
+            )}
             
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -746,16 +828,27 @@ const TariffManagement: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700">
                       Origin Country
                     </label>
-                    <HelpCircle 
-                      className="h-3 w-3 text-gray-400 cursor-help" 
-                      title="Route fields cannot be edited. Delete and recreate the rate to change origin/destination."
-                    />
+                    {editingRate.id && (
+                      <div className="relative group">
+                        <HelpCircle className="h-3 w-3 text-gray-400 cursor-help" />
+                        <div className="absolute left-0 bottom-full mb-1 w-48 p-2 text-xs text-white bg-gray-800 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                          Route fields cannot be edited. Delete and recreate the rate to change origin/destination.
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <select
                     value={editingRate.origin}
-                    disabled
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed opacity-60"
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      origin: e.target.value
+                    })}
+                    disabled={!!editingRate.id}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent ${
+                      editingRate.id ? 'bg-gray-100 cursor-not-allowed opacity-60' : ''
+                    }`}
                   >
+                    <option value="">Select Origin Country</option>
                     {uniqueStations.map(station => (
                       <option key={station} value={station}>{station}</option>
                     ))}
@@ -767,16 +860,27 @@ const TariffManagement: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700">
                       Destination Country
                     </label>
-                    <HelpCircle 
-                      className="h-3 w-3 text-gray-400 cursor-help" 
-                      title="Route fields cannot be edited. Delete and recreate the rate to change origin/destination."
-                    />
+                    {editingRate.id && (
+                      <div className="relative group">
+                        <HelpCircle className="h-3 w-3 text-gray-400 cursor-help" />
+                        <div className="absolute left-0 bottom-full mb-1 w-48 p-2 text-xs text-white bg-gray-800 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                          Route fields cannot be edited. Delete and recreate the rate to change origin/destination.
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <select
                     value={editingRate.destination}
-                    disabled
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed opacity-60"
+                    onChange={(e) => setEditingRate({
+                      ...editingRate,
+                      destination: e.target.value
+                    })}
+                    disabled={!!editingRate.id}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent ${
+                      editingRate.id ? 'bg-gray-100 cursor-not-allowed opacity-60' : ''
+                    }`}
                   >
+                    <option value="">Select Destination Country</option>
                     {uniqueStations.map(station => (
                       <option key={station} value={station}>{station}</option>
                     ))}
@@ -987,7 +1091,7 @@ const TariffManagement: React.FC = () => {
                 className="px-4 py-2 bg-cathay-teal text-white rounded-md text-sm font-medium hover:bg-cathay-teal-dark flex items-center"
               >
                 <Save className="h-4 w-4 mr-2" />
-                Save Rate
+                {editingRate.id ? 'Save Rate' : 'Create Rate'}
               </button>
             </div>
           </div>
