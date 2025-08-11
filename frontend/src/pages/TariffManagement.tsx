@@ -46,6 +46,7 @@ interface TariffRateConfig {
   min_weight: number;
   max_weight: number;
   tariff_rate: number;
+  category_surcharge: number;
   minimum_tariff: number;
   maximum_tariff?: number;
   currency: string;
@@ -66,9 +67,31 @@ interface EditingRate {
   min_weight: number;
   max_weight: number;
   tariff_rate: number;
+  category_surcharge: number;
   minimum_tariff: number;
   maximum_tariff: number;
   notes: string;
+}
+
+interface CategoryConfig {
+  category: string;
+  surcharge: number;
+  enabled: boolean;
+}
+
+interface BulkRateConfig {
+  origin: string;
+  destination: string;
+  postal_service: string;
+  start_date: string;
+  end_date: string;
+  min_weight: number;
+  max_weight: number;
+  base_rate: number;
+  minimum_tariff: number;
+  maximum_tariff: number;
+  notes: string;
+  category_configs: CategoryConfig[];
 }
 
 interface TariffCalculation {
@@ -79,12 +102,23 @@ interface TariffCalculation {
   ship_date?: string;
   declared_value: number;
   weight?: number;
-  tariff_rate?: number;
+  base_rate?: number;
+  surcharge_rate?: number;
+  combined_rate?: number;
   minimum_tariff?: number;
   maximum_tariff?: number;
   calculated_tariff: number;
   currency?: string;
   calculation_method?: string;
+  has_surcharge?: boolean;
+  calculation_breakdown?: {
+    base_percentage: number;
+    surcharge_percentage: number;
+    combined_percentage: number;
+    base_amount: number;
+    surcharge_amount: number;
+    total_amount: number;
+  };
   message?: string;
 }
 
@@ -95,6 +129,8 @@ const TariffManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingRate, setEditingRate] = useState<EditingRate | null>(null);
+  const [showBulkForm, setShowBulkForm] = useState(false);
+  const [bulkRateConfig, setBulkRateConfig] = useState<BulkRateConfig | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
   const [calculatorData, setCalculatorData] = useState({
     origin: '',
@@ -197,6 +233,7 @@ const TariffManagement: React.FC = () => {
       min_weight: existing?.min_weight || 0,
       max_weight: existing?.max_weight || 999999,
       tariff_rate: existing?.tariff_rate || route.historical_rate || defaults?.default_tariff_rate || 0,
+      category_surcharge: existing?.category_surcharge || 0,
       minimum_tariff: existing?.minimum_tariff || defaults?.default_minimum_tariff || 0,
       maximum_tariff: existing?.maximum_tariff || defaults?.suggested_maximum_tariff || 100,
       notes: existing?.notes || ''
@@ -218,10 +255,41 @@ const TariffManagement: React.FC = () => {
       min_weight: 0,
       max_weight: 999999,
       tariff_rate: defaults?.default_tariff_rate || 0.8,
+      category_surcharge: 0,
       minimum_tariff: defaults?.default_minimum_tariff || 0,
       maximum_tariff: defaults?.suggested_maximum_tariff || 100,
       notes: ''
     });
+  };
+
+  const handleAddBulkRate = () => {
+    const defaults = systemDefaults?.system_defaults;
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Initialize category configs for all non-All categories
+    const categoryConfigs = availableCategories
+      .filter(cat => cat !== '*')
+      .map(category => ({
+        category,
+        surcharge: 0,
+        enabled: false
+      }));
+    
+    setBulkRateConfig({
+      origin: '',
+      destination: '',
+      postal_service: '*',
+      start_date: today,
+      end_date: '2099-12-31',
+      min_weight: 0,
+      max_weight: 999999,
+      base_rate: defaults?.default_tariff_rate || 0.8,
+      minimum_tariff: defaults?.default_minimum_tariff || 0,
+      maximum_tariff: defaults?.suggested_maximum_tariff || 100,
+      notes: '',
+      category_configs: categoryConfigs
+    });
+    setShowBulkForm(true);
   };
 
   const handleSaveRate = async () => {
@@ -244,6 +312,7 @@ const TariffManagement: React.FC = () => {
           min_weight: editingRate.min_weight,
           max_weight: editingRate.max_weight,
           tariff_rate: editingRate.tariff_rate,
+          category_surcharge: editingRate.category_surcharge,
           minimum_tariff: editingRate.minimum_tariff,
           maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
           notes: editingRate.notes
@@ -263,6 +332,7 @@ const TariffManagement: React.FC = () => {
           min_weight: editingRate.min_weight,
           max_weight: editingRate.max_weight,
           tariff_rate: editingRate.tariff_rate,
+          category_surcharge: editingRate.category_surcharge,
           minimum_tariff: editingRate.minimum_tariff,
           maximum_tariff: editingRate.maximum_tariff > 0 ? editingRate.maximum_tariff : undefined,
           notes: editingRate.notes
@@ -351,6 +421,69 @@ const TariffManagement: React.FC = () => {
     }
   };
 
+  const handleSaveBulkRate = async () => {
+    if (!bulkRateConfig) return;
+
+    // Validation
+    if (!bulkRateConfig.origin || !bulkRateConfig.destination) {
+      showNotification('Please select both origin and destination countries', 'error');
+      return;
+    }
+
+    const enabledCategories = bulkRateConfig.category_configs.filter(config => config.enabled);
+    if (enabledCategories.length === 0) {
+      showNotification('Please enable at least one category configuration', 'error');
+      return;
+    }
+
+    try {
+      const bulkData = {
+        origin_country: bulkRateConfig.origin,
+        destination_country: bulkRateConfig.destination,
+        postal_service: bulkRateConfig.postal_service,
+        start_date: bulkRateConfig.start_date,
+        end_date: bulkRateConfig.end_date,
+        min_weight: bulkRateConfig.min_weight,
+        max_weight: bulkRateConfig.max_weight,
+        base_rate: bulkRateConfig.base_rate,
+        minimum_tariff: bulkRateConfig.minimum_tariff,
+        maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+        notes: bulkRateConfig.notes,
+        category_configs: enabledCategories.map(config => ({
+          category: config.category,
+          surcharge: config.surcharge
+        }))
+      };
+
+      const response = await fetch('/tariff-rates/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bulkData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create bulk rates');
+      }
+
+      const result = await response.json();
+      showNotification(
+        `Created ${result.total_created} tariff rates for ${bulkRateConfig.origin} → ${bulkRateConfig.destination}`, 
+        'success'
+      );
+      
+      setBulkRateConfig(null);
+      setShowBulkForm(false);
+      fetchData(); // Refresh data
+    } catch (error) {
+      console.error('Error creating bulk tariff rates:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showNotification(`Error creating bulk rates: ${errorMessage}`, 'error');
+    }
+  };
+
   const filteredRoutes = routes.filter(route => {
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
@@ -408,14 +541,24 @@ const TariffManagement: React.FC = () => {
         </div>
         
         <div className="flex items-center space-x-3">
-          <button
-            onClick={handleAddNewRate}
-            className="inline-flex items-center px-4 py-2 border border-cathay-teal text-cathay-teal bg-teal-50 rounded-md text-sm font-medium hover:bg-teal-100"
-            title="Add a new tariff rate configuration for any origin-destination route"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Tariff Rate
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleAddNewRate}
+              className="inline-flex items-center px-4 py-2 border border-cathay-teal text-cathay-teal bg-teal-50 rounded-md text-sm font-medium hover:bg-teal-100"
+              title="Add a single tariff rate configuration for any origin-destination route"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Single Rate
+            </button>
+            <button
+              onClick={handleAddBulkRate}
+              className="inline-flex items-center px-4 py-2 border border-green-500 text-green-700 bg-green-50 rounded-md text-sm font-medium hover:bg-green-100"
+              title="Configure base rate + surcharges for multiple goods categories at once"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Bulk Configure
+            </button>
+          </div>
           <button
             onClick={handleBatchRecalculate}
             className="inline-flex items-center px-4 py-2 border border-orange-300 text-orange-700 bg-orange-50 rounded-md text-sm font-medium hover:bg-orange-100"
@@ -634,12 +777,25 @@ const TariffManagement: React.FC = () => {
                   <p className="font-medium">{formatDisplayValue(calculationResult.postal_service)}</p>
                 </div>
                 <div>
-                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Rate:</span>
+                  <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Rate Breakdown:</span>
                   <p className="font-medium">
-                    {calculationResult.tariff_rate 
-                      ? `${(calculationResult.tariff_rate * 100).toFixed(1)}%`
-                      : '80% (system fallback - no configured rate found)'
-                    }
+                    {calculationResult.calculation_breakdown ? (
+                      <div>
+                        <div>Base: {calculationResult.calculation_breakdown.base_percentage.toFixed(1)}%</div>
+                        {calculationResult.calculation_breakdown.surcharge_percentage > 0 && (
+                          <div className="text-amber-600">
+                            Surcharge: +{calculationResult.calculation_breakdown.surcharge_percentage.toFixed(1)}%
+                          </div>
+                        )}
+                        <div className="font-semibold">
+                          Total: {calculationResult.calculation_breakdown.combined_percentage.toFixed(1)}%
+                        </div>
+                      </div>
+                    ) : calculationResult.base_rate ? (
+                      `${(calculationResult.base_rate * 100).toFixed(1)}%`
+                    ) : (
+                      '80% (system fallback - no configured rate found)'
+                    )}
                   </p>
                 </div>
                 <div>
@@ -653,12 +809,23 @@ const TariffManagement: React.FC = () => {
                 <div>
                   <span className={calculationResult.calculation_method === 'configured' ? 'text-green-600' : 'text-yellow-600'}>Tariff Amount:</span>
                   <p className="font-medium text-lg">${calculationResult.calculated_tariff.toFixed(2)}</p>
+                  {calculationResult.calculation_breakdown && calculationResult.calculation_breakdown.surcharge_percentage > 0 && (
+                    <div className="text-xs mt-1">
+                      <div>Base: ${calculationResult.calculation_breakdown.base_amount.toFixed(2)}</div>
+                      <div className="text-amber-600">Surcharge: +${calculationResult.calculation_breakdown.surcharge_amount.toFixed(2)}</div>
+                    </div>
+                  )}
                 </div>
               </div>
               {calculationResult.calculation_method === 'fallback' && (
                 <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-sm text-orange-800">
-                  <strong>Using Fallback Rate:</strong> No specific tariff configuration found for this route/category/service combination. 
-                  The system is using the default 80% rate. Configure a specific rate above for more accurate calculations.
+                  <strong>Using Fallback Rate:</strong> No base tariff rate found for this route/service combination. 
+                  The system is using the default fallback rate. Configure a base rate (and optional category surcharges) above for more accurate calculations.
+                </div>
+              )}
+              {calculationResult.has_surcharge && (
+                <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                  <strong>Surcharge Applied:</strong> This calculation includes a category-specific surcharge for {calculationResult.goods_category} goods.
                 </div>
               )}
               {calculationResult.message && (
@@ -752,8 +919,20 @@ const TariffManagement: React.FC = () => {
                       <div>
                         <span className="text-sm font-medium text-cathay-teal">
                           {(route.configured_rate.tariff_rate * 100).toFixed(1)}%
+                          {route.configured_rate.category_surcharge > 0 && (
+                            <span className="text-amber-600 ml-1">
+                              +{(route.configured_rate.category_surcharge * 100).toFixed(1)}%
+                            </span>
+                          )}
                         </span>
                         <div className="text-xs text-gray-500">
+                          {route.configured_rate.category_surcharge > 0 && (
+                            <div>
+                              Base: {(route.configured_rate.tariff_rate * 100).toFixed(1)}% + 
+                              Surcharge: {(route.configured_rate.category_surcharge * 100).toFixed(1)}% = 
+                              Total: {((route.configured_rate.tariff_rate + route.configured_rate.category_surcharge) * 100).toFixed(1)}%
+                            </div>
+                          )}
                           Min: ${route.configured_rate.minimum_tariff}
                           {route.configured_rate.maximum_tariff && (
                             `, Max: $${route.configured_rate.maximum_tariff}`
@@ -1030,6 +1209,32 @@ const TariffManagement: React.FC = () => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category Surcharge (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={editingRate.category_surcharge}
+                  onChange={(e) => setEditingRate({
+                    ...editingRate,
+                    category_surcharge: parseFloat(e.target.value) || 0
+                  })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Additional surcharge for this category (e.g., 0.1 for +10%)
+                  {editingRate.goods_category === '*' && (
+                    <span className="block text-amber-600">
+                      Note: Surcharges are typically used for specific goods categories
+                    </span>
+                  )}
+                </p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Minimum Tariff ($)
                 </label>
                 <input
@@ -1092,6 +1297,312 @@ const TariffManagement: React.FC = () => {
               >
                 <Save className="h-4 w-4 mr-2" />
                 {editingRate.id ? 'Save Rate' : 'Create Rate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Rate Configuration Modal */}
+      {showBulkForm && bulkRateConfig && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Bulk Configure Category Rates
+            </h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Configure a base rate and category-specific surcharges for multiple goods categories at once.
+            </p>
+            
+            <div className="space-y-6">
+              {/* Route Configuration */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Route Configuration</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Origin Country *
+                    </label>
+                    <select
+                      value={bulkRateConfig.origin}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        origin: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    >
+                      <option value="">Select Origin Country</option>
+                      {uniqueStations.map(station => (
+                        <option key={station} value={station}>{station}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Destination Country *
+                    </label>
+                    <select
+                      value={bulkRateConfig.destination}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        destination: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    >
+                      <option value="">Select Destination Country</option>
+                      {uniqueStations.map(station => (
+                        <option key={station} value={station}>{station}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Postal Service
+                    </label>
+                    <select
+                      value={bulkRateConfig.postal_service}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        postal_service: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    >
+                      {availableServices.map(service => (
+                        <option key={service} value={service}>
+                          {formatDisplayValue(service)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={bulkRateConfig.start_date}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        start_date: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={bulkRateConfig.end_date}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        end_date: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Base Rate Configuration */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Base Rate Configuration</h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Base Tariff Rate (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="1"
+                      value={bulkRateConfig.base_rate}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        base_rate: parseFloat(e.target.value) || 0
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Base rate as decimal (e.g., 0.5 for 50%)
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Min Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkRateConfig.min_weight}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        min_weight: parseFloat(e.target.value) || 0
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Max Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkRateConfig.max_weight}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        max_weight: parseFloat(e.target.value) || 999999
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Minimum Tariff ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkRateConfig.minimum_tariff}
+                      onChange={(e) => setBulkRateConfig({
+                        ...bulkRateConfig,
+                        minimum_tariff: parseFloat(e.target.value) || 0
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Category Surcharges Configuration */}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Category Surcharges</h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  Enable and configure surcharges for specific goods categories. Each enabled category will create a separate tariff rate.
+                </p>
+                <div className="space-y-3">
+                  {bulkRateConfig.category_configs.map((config, index) => (
+                    <div key={config.category} className="flex items-center space-x-4 p-3 bg-gray-50 rounded-md">
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id={`category-${index}`}
+                          checked={config.enabled}
+                          onChange={(e) => {
+                            const updated = [...bulkRateConfig.category_configs];
+                            updated[index].enabled = e.target.checked;
+                            setBulkRateConfig({
+                              ...bulkRateConfig,
+                              category_configs: updated
+                            });
+                          }}
+                          className="h-4 w-4 text-cathay-teal focus:ring-cathay-teal border-gray-300 rounded"
+                        />
+                        <label htmlFor={`category-${index}`} className="ml-2 text-sm font-medium text-gray-700 w-32">
+                          {config.category}
+                        </label>
+                      </div>
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-600">Surcharge:</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={config.surcharge}
+                            onChange={(e) => {
+                              const updated = [...bulkRateConfig.category_configs];
+                              updated[index].surcharge = parseFloat(e.target.value) || 0;
+                              setBulkRateConfig({
+                                ...bulkRateConfig,
+                                category_configs: updated
+                              });
+                            }}
+                            disabled={!config.enabled}
+                            className={`w-24 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent ${
+                              !config.enabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                            }`}
+                            placeholder="0.00"
+                          />
+                          <span className="text-sm text-gray-500">
+                            (+{(config.surcharge * 100).toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-sm text-gray-600">
+                        Total: {((bulkRateConfig.base_rate + config.surcharge) * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="flex items-start">
+                    <div className="text-blue-600 mr-2 mt-0.5">
+                      <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="text-sm text-blue-800">
+                      <strong>How it works:</strong> This will create a base rate (goods_category = '*') plus individual surcharge rates for each enabled category.
+                      When calculating tariffs, the system will use the base rate + category surcharge for matching categories.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  value={bulkRateConfig.notes}
+                  onChange={(e) => setBulkRateConfig({
+                    ...bulkRateConfig,
+                    notes: e.target.value
+                  })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  placeholder="Optional notes about these tariff rates..."
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
+              <button
+                onClick={() => {
+                  setBulkRateConfig(null);
+                  setShowBulkForm(false);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBulkRate}
+                className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 flex items-center"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Create Bulk Rates
               </button>
             </div>
           </div>
