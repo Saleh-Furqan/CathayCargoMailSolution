@@ -1463,8 +1463,7 @@ def batch_recalculate_tariffs():
                 bag_weight = _safe_float(shipment.bag_weight) or 0
                 
                 # Retroactively re-derive classification from raw data
-                from data_processor import DataProcessor
-                processor = DataProcessor()
+                processor = DataProcessor(IODA_DATA_FILE)
                 
                 # Re-derive goods category from declared content
                 if shipment.declared_content:
