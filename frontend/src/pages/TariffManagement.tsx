@@ -96,6 +96,8 @@ const TariffManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showBulkForm, setShowBulkForm] = useState(false);
   const [bulkRateConfig, setBulkRateConfig] = useState<BulkRateConfig | null>(null);
+  const [isEditingExisting, setIsEditingExisting] = useState(false);
+  const [originalPeriodConfig, setOriginalPeriodConfig] = useState<{start_date: string, end_date: string} | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
   const [calculatorData, setCalculatorData] = useState({
     origin: '',
@@ -117,6 +119,28 @@ const TariffManagement: React.FC = () => {
   const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const checkForDateConflicts = (origin: string, destination: string, startDate: string, endDate: string, excludeCurrentPeriod: boolean = false) => {
+    const conflictingRoutes = routes.filter(route => {
+      // Skip if this is the same route we're currently editing (use original dates for comparison)
+      if (excludeCurrentPeriod && 
+          originalPeriodConfig &&
+          route.origin === origin && 
+          route.destination === destination &&
+          route.start_date === originalPeriodConfig.start_date &&
+          route.end_date === originalPeriodConfig.end_date) {
+        return false;
+      }
+      
+      return route.origin === origin && 
+             route.destination === destination &&
+             route.start_date && 
+             route.end_date &&
+             ((startDate <= route.end_date && endDate >= route.start_date));
+    });
+    
+    return conflictingRoutes;
   };
 
   useEffect(() => {
@@ -149,7 +173,9 @@ const TariffManagement: React.FC = () => {
       const allRoutes = [...baseRoutes];
       configuredRatesData.forEach((rate: TariffRateConfig) => {
         const key = `${rate.origin_country}-${rate.destination_country}`;
-        if (!existingRoutesMap.has(key)) {
+        let existingRoute = existingRoutesMap.get(key);
+        
+        if (!existingRoute) {
           // Create a synthetic route for the configured rate
           const syntheticRoute: TariffRoute = {
             origin: rate.origin_country,
@@ -160,10 +186,39 @@ const TariffManagement: React.FC = () => {
             total_tariff_amount: 0,
             historical_rate: 0.8, // Default fallback rate
             configured_rate: rate,
-            has_configured_rate: true
+            has_configured_rate: true,
+            start_date: rate.start_date,
+            end_date: rate.end_date
           };
           allRoutes.push(syntheticRoute);
           existingRoutesMap.set(key, syntheticRoute);
+        } else {
+          // If route exists but this is a different date range, create a separate entry
+          const isDifferentDateRange = existingRoute.start_date !== rate.start_date || 
+                                      existingRoute.end_date !== rate.end_date;
+          
+          if (isDifferentDateRange) {
+            const additionalRoute: TariffRoute = {
+              origin: rate.origin_country,
+              destination: rate.destination_country,
+              route: `${rate.origin_country} → ${rate.destination_country}`,
+              shipment_count: 0,
+              total_declared_value: 0,
+              total_tariff_amount: 0,
+              historical_rate: existingRoute.historical_rate,
+              configured_rate: rate,
+              has_configured_rate: true,
+              start_date: rate.start_date,
+              end_date: rate.end_date
+            };
+            allRoutes.push(additionalRoute);
+          } else if (!existingRoute.configured_rate) {
+            // Update existing route with this rate if it doesn't have one
+            existingRoute.configured_rate = rate;
+            existingRoute.has_configured_rate = true;
+            existingRoute.start_date = rate.start_date;
+            existingRoute.end_date = rate.end_date;
+          }
         }
       });
       
@@ -196,29 +251,28 @@ const TariffManagement: React.FC = () => {
         enabled: false
       }));
     
-    // If there's an existing rate, fetch all related rates for this route to get category configurations
+    // If there's an existing rate, fetch ONLY the rates for this specific time period
     if (existing) {
       try {
-        // Fetch all rates for this origin-destination pair to get category configurations
+        // Fetch all rates for this specific origin-destination-postal_service-date combination
         const allRatesResponse = await apiService.getTariffRates();
         const allRates = allRatesResponse.tariff_rates || [];
         
-        // Filter rates for this specific route
-        const routeRates = allRates.filter((rate: TariffRateConfig) => 
+        // Filter rates for this SPECIFIC time period only
+        const periodRates = allRates.filter((rate: TariffRateConfig) => 
           rate.origin_country === route.origin && 
           rate.destination_country === route.destination &&
-          rate.postal_service === existing.postal_service
+          rate.postal_service === existing.postal_service &&
+          rate.start_date === existing.start_date &&
+          rate.end_date === existing.end_date
         );
         
-        // No wildcard rates - all category-specific now
-        let baseRate = 0;
-        
-        // Update category configs with existing rate values
+        // Update category configs with ONLY this period's rate values
         categoryConfigs = availableCategories
           .filter(cat => cat !== '*')
           .map(category => {
-            // Find existing rate for this category
-            const existingCategoryRate = routeRates.find((rate: TariffRateConfig) => 
+            // Find existing rate for this category in THIS period only
+            const existingCategoryRate = periodRates.find((rate: TariffRateConfig) => 
               rate.goods_category === category
             );
             
@@ -257,6 +311,18 @@ const TariffManagement: React.FC = () => {
       notes: existing?.notes || '',
       category_configs: categoryConfigs
     });
+    setIsEditingExisting(!!existing); // Set editing flag based on whether we have existing data
+    
+    // Store original period configuration for proper conflict detection
+    if (existing) {
+      setOriginalPeriodConfig({
+        start_date: existing.start_date,
+        end_date: existing.end_date
+      });
+    } else {
+      setOriginalPeriodConfig(null);
+    }
+    
     setShowBulkForm(true);
   };
 
@@ -286,6 +352,8 @@ const TariffManagement: React.FC = () => {
       notes: '',
       category_configs: categoryConfigs
     });
+    setIsEditingExisting(false); // This is a new rate creation
+    setOriginalPeriodConfig(null); // No original period for new creation
     setShowBulkForm(true);
   };
 
@@ -363,42 +431,204 @@ const TariffManagement: React.FC = () => {
     }
 
     const enabledCategories = bulkRateConfig.category_configs.filter(config => config.enabled);
+    
     if (enabledCategories.length === 0) {
       showNotification('Please enable at least one category configuration', 'error');
       return;
     }
 
-    try {
-      const bulkData = {
-        origin_country: bulkRateConfig.origin,
-        destination_country: bulkRateConfig.destination,
-        postal_service: bulkRateConfig.postal_service,
-        start_date: bulkRateConfig.start_date,
-        end_date: bulkRateConfig.end_date,
-        min_weight: bulkRateConfig.min_weight,
-        max_weight: bulkRateConfig.max_weight,
-        minimum_tariff: bulkRateConfig.minimum_tariff,
-        maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
-        notes: bulkRateConfig.notes,
-        category_rates: enabledCategories.map(config => ({
-          category: config.category,
-          rate: config.rate
-        }))
-      };
+    // Validate dates
+    if (bulkRateConfig.start_date >= bulkRateConfig.end_date) {
+      showNotification('Start date must be before end date', 'error');
+      return;
+    }
 
-      const result = await apiService.createBulkTariffRates(bulkData);
+    // Check for date conflicts and prevent saving if conflicts exist
+    const conflicts = checkForDateConflicts(
+      bulkRateConfig.origin, 
+      bulkRateConfig.destination, 
+      bulkRateConfig.start_date, 
+      bulkRateConfig.end_date, 
+      isEditingExisting
+    );
+    
+    if (conflicts.length > 0) {
       showNotification(
-        `Created ${result.total_created} tariff rates for ${bulkRateConfig.origin} → ${bulkRateConfig.destination}`, 
+        `Cannot save: Date range conflicts with ${conflicts.length} existing period(s). Please choose non-overlapping dates.`, 
+        'error'
+      );
+      return;
+    }
+
+    try {
+      if (isEditingExisting && originalPeriodConfig) {
+        // For editing: First delete the old period rates, then create new ones
+        await handleUpdateExistingPeriod();
+      } else {
+        // For new creation: Use the normal bulk creation
+        await handleCreateNewPeriod();
+      }
+    } catch (error) {
+      console.error('Error saving tariff rates:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showNotification(`Error saving rates: ${errorMessage}`, 'error');
+    }
+  };
+
+  const handleCreateNewPeriod = async () => {
+    if (!bulkRateConfig) return;
+    
+    const enabledCategories = bulkRateConfig.category_configs.filter(config => config.enabled);
+    
+    const bulkData = {
+      origin_country: bulkRateConfig.origin,
+      destination_country: bulkRateConfig.destination,
+      postal_service: bulkRateConfig.postal_service,
+      start_date: bulkRateConfig.start_date,
+      end_date: bulkRateConfig.end_date,
+      min_weight: bulkRateConfig.min_weight,
+      max_weight: bulkRateConfig.max_weight,
+      minimum_tariff: bulkRateConfig.minimum_tariff,
+      maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+      notes: bulkRateConfig.notes,
+      category_rates: enabledCategories.map(config => ({
+        category: config.category,
+        rate: config.rate
+      }))
+    };
+
+    const result = await apiService.createBulkTariffRates(bulkData);
+    
+    if (result.errors && result.errors.length > 0) {
+      showNotification(`Issues: ${result.errors.join(' ')}`, 'error');
+    } else {
+      showNotification(
+        `Successfully created ${result.total_created} tariff rates for ${bulkRateConfig.origin} → ${bulkRateConfig.destination}`, 
+        'success'
+      );
+      setBulkRateConfig(null);
+      setIsEditingExisting(false);
+      setOriginalPeriodConfig(null);
+      setShowBulkForm(false);
+    }
+    
+    fetchData(); // Refresh data
+  };
+
+  const handleUpdateExistingPeriod = async () => {
+    if (!bulkRateConfig || !originalPeriodConfig) return;
+    
+    try {
+      const allRatesResponse = await apiService.getTariffRates();
+      const allRates = allRatesResponse.tariff_rates || [];
+      
+      // Find all rates for the original period
+      const originalPeriodRates = allRates.filter((rate: TariffRateConfig) => 
+        rate.origin_country === bulkRateConfig.origin && 
+        rate.destination_country === bulkRateConfig.destination &&
+        rate.postal_service === bulkRateConfig.postal_service &&
+        rate.start_date === originalPeriodConfig.start_date &&
+        rate.end_date === originalPeriodConfig.end_date
+      );
+      
+      const enabledCategories = bulkRateConfig.category_configs.filter(config => config.enabled);
+      const disabledCategories = bulkRateConfig.category_configs.filter(config => !config.enabled);
+      
+      // Step 1: Delete rates for categories that are now disabled
+      for (const disabledCategory of disabledCategories) {
+        const rateToDelete = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === disabledCategory.category);
+        if (rateToDelete) {
+          await apiService.deleteTariffRate(rateToDelete.id);
+        }
+      }
+      
+      // Step 2: Update or create rates for enabled categories
+      for (const enabledCategory of enabledCategories) {
+        const existingRate = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === enabledCategory.category);
+        
+        if (existingRate) {
+          // Update existing rate
+          await apiService.updateTariffRate(existingRate.id, {
+            tariff_rate: enabledCategory.rate,
+            minimum_tariff: bulkRateConfig.minimum_tariff,
+            maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+            notes: `${bulkRateConfig.notes} (Updated via edit)`,
+            is_active: true
+          });
+        } else {
+          // Create new rate for this category within the SAME period (use original dates)
+          await apiService.createTariffRate({
+            origin_country: bulkRateConfig.origin,
+            destination_country: bulkRateConfig.destination,
+            goods_category: enabledCategory.category,
+            postal_service: bulkRateConfig.postal_service,
+            start_date: originalPeriodConfig.start_date, // Use original dates to stay in same period
+            end_date: originalPeriodConfig.end_date,     // Use original dates to stay in same period
+            min_weight: bulkRateConfig.min_weight,
+            max_weight: bulkRateConfig.max_weight,
+            tariff_rate: enabledCategory.rate,
+            minimum_tariff: bulkRateConfig.minimum_tariff,
+            maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+            currency: 'USD',
+            notes: `${bulkRateConfig.notes} (Added via edit)`
+          });
+        }
+      }
+      
+      // Step 3: Update date ranges for all remaining rates if dates changed
+      if (bulkRateConfig.start_date !== originalPeriodConfig.start_date || 
+          bulkRateConfig.end_date !== originalPeriodConfig.end_date) {
+        
+        // For date changes, we need to recreate the rates since updateTariffRate doesn't support date changes
+        // Get all remaining rates for this period
+        const currentRatesResponse = await apiService.getTariffRates();
+        const currentRates = currentRatesResponse.tariff_rates || [];
+        
+        const ratesToUpdateDates = currentRates.filter((rate: TariffRateConfig) => 
+          rate.origin_country === bulkRateConfig.origin && 
+          rate.destination_country === bulkRateConfig.destination &&
+          rate.postal_service === bulkRateConfig.postal_service &&
+          rate.start_date === originalPeriodConfig.start_date &&
+          rate.end_date === originalPeriodConfig.end_date
+        );
+        
+        // Delete old rates and recreate with new dates
+        for (const rate of ratesToUpdateDates) {
+          await apiService.deleteTariffRate(rate.id);
+          
+          // Recreate with new dates
+          await apiService.createTariffRate({
+            origin_country: rate.origin_country,
+            destination_country: rate.destination_country,
+            goods_category: rate.goods_category,
+            postal_service: rate.postal_service,
+            start_date: bulkRateConfig.start_date,
+            end_date: bulkRateConfig.end_date,
+            min_weight: rate.min_weight,
+            max_weight: rate.max_weight,
+            tariff_rate: rate.tariff_rate,
+            minimum_tariff: rate.minimum_tariff,
+            maximum_tariff: rate.maximum_tariff,
+            currency: rate.currency,
+            notes: `${rate.notes} (Date updated via edit)`
+          });
+        }
+      }
+      
+      showNotification(
+        `Successfully updated tariff rates for ${bulkRateConfig.origin} → ${bulkRateConfig.destination}`, 
         'success'
       );
       
       setBulkRateConfig(null);
+      setIsEditingExisting(false);
+      setOriginalPeriodConfig(null);
       setShowBulkForm(false);
       fetchData(); // Refresh data
+      
     } catch (error) {
-      console.error('Error creating bulk tariff rates:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      showNotification(`Error creating bulk rates: ${errorMessage}`, 'error');
+      console.error('Error updating existing period:', error);
+      throw error;
     }
   };
 
@@ -456,7 +686,7 @@ const TariffManagement: React.FC = () => {
             Tariff Rate Management
           </h1>
           <p className="text-gray-600 mt-2">
-            Configure and manage tariff rates for different shipping routes and goods categories
+            Configure and manage tariff rates for different shipping routes and goods categories.
           </p>
         </div>
 
@@ -535,16 +765,21 @@ const TariffManagement: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredRoutes.map((route, index) => (
-                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                {filteredRoutes.map((route, routeIndex) => (
+                  <tr key={`${route.route}-${route.start_date}-${route.end_date}`} className={routeIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">
+                          <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
                             {route.route}
                           </div>
                           <div className="text-sm text-gray-500">
                             {route.origin} → {route.destination}
+                            {route.start_date && route.end_date && (
+                              <span className="ml-2 text-xs text-blue-600">
+                                ({route.start_date} to {route.end_date})
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -643,9 +878,9 @@ const TariffManagement: React.FC = () => {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-6xl mx-4 max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Bulk Rate Configuration
+                {isEditingExisting ? 'Edit Rate Configuration' : 'Bulk Rate Configuration'}
               </h3>
-              <p className="text-sm text-gray-600 mb-6">
+              <p className="text-sm text-gray-600 mb-2">
                 Configure rates for {bulkRateConfig.origin || 'Origin'} → {bulkRateConfig.destination || 'Destination'}
               </p>
               
@@ -763,6 +998,14 @@ const TariffManagement: React.FC = () => {
                         })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
                       />
+                      {bulkRateConfig.origin && bulkRateConfig.destination && bulkRateConfig.start_date && bulkRateConfig.end_date && (() => {
+                        const conflicts = checkForDateConflicts(bulkRateConfig.origin, bulkRateConfig.destination, bulkRateConfig.start_date, bulkRateConfig.end_date, isEditingExisting);
+                        return conflicts.length > 0 ? (
+                          <div className="mt-1 text-xs text-red-600">
+                            ⚠️ Date range conflicts with {conflicts.length} existing rate(s)
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
 
                     <div>
@@ -778,6 +1021,18 @@ const TariffManagement: React.FC = () => {
                         })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
                       />
+                      {bulkRateConfig.origin && bulkRateConfig.destination && bulkRateConfig.start_date && bulkRateConfig.end_date && (() => {
+                        const conflicts = checkForDateConflicts(bulkRateConfig.origin, bulkRateConfig.destination, bulkRateConfig.start_date, bulkRateConfig.end_date, isEditingExisting);
+                        return conflicts.length > 0 ? (
+                          <div className="mt-1 text-xs text-red-600">
+                            Conflicts: {conflicts.map(c => `${c.start_date} to ${c.end_date}`).join(', ')}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-xs text-green-600">
+                            ✓ No date conflicts detected
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div>
@@ -968,6 +1223,8 @@ const TariffManagement: React.FC = () => {
                 <button
                   onClick={() => {
                     setBulkRateConfig(null);
+                    setIsEditingExisting(false);
+                    setOriginalPeriodConfig(null);
                     setShowBulkForm(false);
                   }}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
@@ -979,7 +1236,7 @@ const TariffManagement: React.FC = () => {
                   className="px-4 py-2 text-sm font-medium text-white bg-cathay-teal hover:bg-cathay-teal-dark rounded-md"
                 >
                   <Save className="h-4 w-4 inline mr-2" />
-                  Create Rates
+                  {isEditingExisting ? 'Save Changes' : 'Create Rates'}
                 </button>
               </div>
             </div>

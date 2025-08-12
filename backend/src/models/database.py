@@ -6,20 +6,8 @@ db = SQLAlchemy()
 class TariffRate(db.Model):
     """Model for storing tariff rates between countries/stations with goods category, postal service, and date ranges"""
     __tablename__ = 'tariff_rates'
-    __table_args__ = (
-        db.UniqueConstraint(
-            'origin_country', 
-            'destination_country',
-            'goods_category',
-            'postal_service',
-            'start_date',
-            'end_date',
-            'min_weight',
-            'max_weight',
-            name='uix_tariff_route_weight_extended'
-        ),
-    )
-
+    # Removed unique constraint to allow same category in different time periods
+    
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)

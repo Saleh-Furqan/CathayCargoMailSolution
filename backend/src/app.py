@@ -2278,54 +2278,75 @@ def create_bulk_tariff_rates():
                 if goods_category == '*':
                     continue  # Skip wildcard category here, handled above
                 
-                # Check for existing rate
-                existing_rate = TariffRate.query.filter_by(
-                    origin_country=origin,
-                    destination_country=destination,
-                    goods_category=goods_category,
-                    postal_service=postal_service,
-                    start_date=start_date,
-                    end_date=end_date,
-                    min_weight=min_weight,
-                    max_weight=max_weight
-                ).first()
+                # Check for overlapping date ranges (not exact matches)
+                overlapping_rates = TariffRate.check_overlapping_rates(
+                    origin, destination, goods_category, postal_service, 
+                    start_date, end_date
+                )
                 
-                if existing_rate:
-                    # Update existing category rate
-                    existing_rate.tariff_rate = category_rate
-                    existing_rate.category_surcharge = 0.0  # Not used anymore
-                    existing_rate.minimum_tariff = minimum_tariff
-                    existing_rate.maximum_tariff = maximum_tariff
-                    existing_rate.currency = currency
-                    existing_rate.notes = f"{notes} (Category rate updated via bulk)"
-                    existing_rate.updated_at = datetime.now()
-                    created_rates.append(existing_rate.to_dict())
-                else:
-                    # Create new category rate
-                    new_rate = TariffRate()
-                    new_rate.origin_country = origin
-                    new_rate.destination_country = destination
-                    new_rate.goods_category = goods_category
-                    new_rate.postal_service = postal_service
-                    new_rate.start_date = start_date
-                    new_rate.end_date = end_date
-                    new_rate.min_weight = min_weight
-                    new_rate.max_weight = max_weight
-                    new_rate.tariff_rate = category_rate
-                    new_rate.category_surcharge = 0.0  # Not used anymore
-                    new_rate.minimum_tariff = minimum_tariff
-                    new_rate.maximum_tariff = maximum_tariff
-                    new_rate.currency = currency
-                    new_rate.is_active = True
-                    new_rate.notes = f"{notes} (Category rate created via bulk)"
-                    
-                    db.session.add(new_rate)
-                    created_rates.append({
-                        'goods_category': goods_category,
-                        'tariff_rate': category_rate,
-                        'category_surcharge': 0.0,
-                        'effective_rate': category_rate
-                    })
+                has_date_conflict = False
+                if overlapping_rates:
+                    # Check if any overlapping rate has the same weight range
+                    for overlap_rate in overlapping_rates:
+                        if (overlap_rate.min_weight == min_weight and 
+                            overlap_rate.max_weight == max_weight):
+                            errors.append(
+                                f"Date range conflict for {goods_category}: "
+                                f"overlaps with existing rate from {overlap_rate.start_date} to {overlap_rate.end_date}. "
+                                f"Please adjust the existing rate or choose non-overlapping dates."
+                            )
+                            has_date_conflict = True
+                            break
+                
+                if not has_date_conflict:
+                    # Check for exact match to update existing rate (same route, category, dates, and weight range)
+                    existing_rate = TariffRate.query.filter_by(
+                        origin_country=origin,
+                        destination_country=destination,
+                        goods_category=goods_category,
+                        postal_service=postal_service,
+                        start_date=start_date,
+                        end_date=end_date,
+                        min_weight=min_weight,
+                        max_weight=max_weight
+                    ).first()
+                
+                    if existing_rate:
+                        # Update existing category rate
+                        existing_rate.tariff_rate = category_rate
+                        existing_rate.category_surcharge = 0.0  # Not used anymore
+                        existing_rate.minimum_tariff = minimum_tariff
+                        existing_rate.maximum_tariff = maximum_tariff
+                        existing_rate.currency = currency
+                        existing_rate.notes = f"{notes} (Category rate updated via bulk)"
+                        existing_rate.updated_at = datetime.now()
+                        created_rates.append(existing_rate.to_dict())
+                    else:
+                        # Create new category rate - no constraint checking since we removed unique constraints
+                        new_rate = TariffRate()
+                        new_rate.origin_country = origin
+                        new_rate.destination_country = destination
+                        new_rate.goods_category = goods_category
+                        new_rate.postal_service = postal_service
+                        new_rate.start_date = start_date
+                        new_rate.end_date = end_date
+                        new_rate.min_weight = min_weight
+                        new_rate.max_weight = max_weight
+                        new_rate.tariff_rate = category_rate
+                        new_rate.category_surcharge = 0.0  # Not used anymore
+                        new_rate.minimum_tariff = minimum_tariff
+                        new_rate.maximum_tariff = maximum_tariff
+                        new_rate.currency = currency
+                        new_rate.is_active = True
+                        new_rate.notes = f"{notes} (Category rate created via bulk)"
+                        
+                        db.session.add(new_rate)
+                        created_rates.append({
+                            'goods_category': goods_category,
+                            'tariff_rate': category_rate,
+                            'category_surcharge': 0.0,
+                            'effective_rate': category_rate
+                        })
                     
             except Exception as e:
                 errors.append(f"Failed to create rate for {config.get('category', 'Unknown')}: {str(e)}")
