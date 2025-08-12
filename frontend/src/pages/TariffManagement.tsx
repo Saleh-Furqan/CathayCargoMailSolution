@@ -515,7 +515,7 @@ const TariffManagement: React.FC = () => {
     <div className="space-y-6">
       {/* Notification */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg flex items-center gap-3 ${
+        <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-md shadow-lg flex items-center gap-3 ${
           notification.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' :
           notification.type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' :
           'bg-blue-100 text-blue-800 border border-blue-200'

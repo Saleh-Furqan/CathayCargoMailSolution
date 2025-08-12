@@ -519,7 +519,7 @@
   
   /* Tooltip styles */
   .cathay-tooltip {
-    @apply invisible absolute z-50 py-2 px-3 text-sm font-medium text-white bg-slate-900 rounded-lg shadow-sm opacity-0 tooltip transition-opacity duration-200;
+    @apply invisible absolute z-[100] py-2 px-3 text-sm font-medium text-white bg-slate-900 rounded-lg shadow-sm opacity-0 tooltip transition-opacity duration-200;
   }
   
   .cathay-tooltip-trigger:hover .cathay-tooltip {
