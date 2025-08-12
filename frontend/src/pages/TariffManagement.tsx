@@ -190,19 +190,71 @@ const TariffManagement: React.FC = () => {
     }
   };
 
-  const handleEditRate = (route: TariffRoute) => {
+  const handleEditRate = async (route: TariffRoute) => {
     const existing = route.configured_rate;
     const defaults = systemDefaults?.system_defaults;
     const today = new Date().toISOString().split('T')[0];
     
     // Initialize category configs for all non-All categories
-    const categoryConfigs = availableCategories
+    let categoryConfigs = availableCategories
       .filter(cat => cat !== '*')
       .map(category => ({
         category,
         surcharge: 0,
         enabled: false
       }));
+    
+    let baseRate = existing?.tariff_rate || route.historical_rate || defaults?.default_tariff_rate || 0.8;
+    
+    // If there's an existing rate, fetch all related rates for this route to get category configurations
+    if (existing) {
+      try {
+        // Fetch all rates for this origin-destination pair to get category configurations
+        const allRatesResponse = await apiService.getTariffRates();
+        const allRates = allRatesResponse.tariff_rates || [];
+        
+        // Filter rates for this specific route
+        const routeRates = allRates.filter((rate: TariffRateConfig) => 
+          rate.origin_country === route.origin && 
+          rate.destination_country === route.destination &&
+          rate.postal_service === existing.postal_service
+        );
+        
+        // Find the base rate (category = '*')
+        const baseRateConfig = routeRates.find((rate: TariffRateConfig) => rate.goods_category === '*');
+        if (baseRateConfig) {
+          baseRate = baseRateConfig.tariff_rate;
+        }
+        
+        // Update category configs with existing surcharge values
+        categoryConfigs = availableCategories
+          .filter(cat => cat !== '*')
+          .map(category => {
+            // Find existing rate for this category
+            const existingCategoryRate = routeRates.find((rate: TariffRateConfig) => 
+              rate.goods_category === category
+            );
+            
+            if (existingCategoryRate) {
+              return {
+                category,
+                surcharge: existingCategoryRate.category_surcharge || 0,
+                enabled: true
+              };
+            } else {
+              return {
+                category,
+                surcharge: 0,
+                enabled: false
+              };
+            }
+          });
+        
+      } catch (error) {
+        console.error('Error loading existing category configurations:', error);
+        showNotification('Warning: Could not load existing category configurations', 'error');
+      }
+    }
     
     // Set up bulk rate config with existing data if available
     setBulkRateConfig({
@@ -213,7 +265,7 @@ const TariffManagement: React.FC = () => {
       end_date: existing?.end_date || '2099-12-31',
       min_weight: existing?.min_weight || 0,
       max_weight: existing?.max_weight || 999999,
-      base_rate: existing?.tariff_rate || route.historical_rate || defaults?.default_tariff_rate || 0.8,
+      base_rate: baseRate,
       minimum_tariff: existing?.minimum_tariff || defaults?.default_minimum_tariff || 0,
       maximum_tariff: existing?.maximum_tariff || defaults?.suggested_maximum_tariff || 100,
       notes: existing?.notes || '',
