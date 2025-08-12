@@ -49,7 +49,7 @@ interface TariffRateConfig {
 
 interface CategoryConfig {
   category: string;
-  surcharge: number;
+  rate: number;
   enabled: boolean;
 }
 
@@ -61,7 +61,6 @@ interface BulkRateConfig {
   end_date: string;
   min_weight: number;
   max_weight: number;
-  base_rate: number;
   minimum_tariff: number;
   maximum_tariff: number;
   notes: string;
@@ -76,23 +75,14 @@ interface TariffCalculation {
   ship_date?: string;
   declared_value: number;
   weight?: number;
-  base_rate?: number;
-  surcharge_rate?: number;
-  combined_rate?: number;
+  tariff_rate?: number;
   minimum_tariff?: number;
   maximum_tariff?: number;
   calculated_tariff: number;
   currency?: string;
   calculation_method?: string;
-  has_surcharge?: boolean;
-  calculation_breakdown?: {
-    base_percentage: number;
-    surcharge_percentage: number;
-    combined_percentage: number;
-    base_amount: number;
-    surcharge_amount: number;
-    total_amount: number;
-  };
+  has_category_specific_rate?: boolean;
+  rate_details?: any;
   message?: string;
 }
 
@@ -200,11 +190,9 @@ const TariffManagement: React.FC = () => {
       .filter(cat => cat !== '*')
       .map(category => ({
         category,
-        surcharge: 0,
+        rate: 0,
         enabled: false
       }));
-    
-    let baseRate = existing?.tariff_rate || route.historical_rate || defaults?.default_tariff_rate || 0.8;
     
     // If there's an existing rate, fetch all related rates for this route to get category configurations
     if (existing) {
@@ -220,13 +208,10 @@ const TariffManagement: React.FC = () => {
           rate.postal_service === existing.postal_service
         );
         
-        // Find the base rate (category = '*')
-        const baseRateConfig = routeRates.find((rate: TariffRateConfig) => rate.goods_category === '*');
-        if (baseRateConfig) {
-          baseRate = baseRateConfig.tariff_rate;
-        }
+        // No wildcard rates - all category-specific now
+        let baseRate = 0;
         
-        // Update category configs with existing surcharge values
+        // Update category configs with existing rate values
         categoryConfigs = availableCategories
           .filter(cat => cat !== '*')
           .map(category => {
@@ -238,13 +223,13 @@ const TariffManagement: React.FC = () => {
             if (existingCategoryRate) {
               return {
                 category,
-                surcharge: existingCategoryRate.category_surcharge || 0,
+                rate: existingCategoryRate.tariff_rate || 0,
                 enabled: true
               };
             } else {
               return {
                 category,
-                surcharge: 0,
+                rate: 0,
                 enabled: false
               };
             }
@@ -265,7 +250,6 @@ const TariffManagement: React.FC = () => {
       end_date: existing?.end_date || '2099-12-31',
       min_weight: existing?.min_weight || 0,
       max_weight: existing?.max_weight || 999999,
-      base_rate: baseRate,
       minimum_tariff: existing?.minimum_tariff || defaults?.default_minimum_tariff || 0,
       maximum_tariff: existing?.maximum_tariff || defaults?.suggested_maximum_tariff || 100,
       notes: existing?.notes || '',
@@ -283,7 +267,7 @@ const TariffManagement: React.FC = () => {
       .filter(cat => cat !== '*')
       .map(category => ({
         category,
-        surcharge: 0,
+        rate: 0,
         enabled: false
       }));
     
@@ -295,7 +279,6 @@ const TariffManagement: React.FC = () => {
       end_date: '2099-12-31',
       min_weight: 0,
       max_weight: 999999,
-      base_rate: defaults?.default_tariff_rate || 0.8,
       minimum_tariff: defaults?.default_minimum_tariff || 0,
       maximum_tariff: defaults?.suggested_maximum_tariff || 100,
       notes: '',
@@ -392,13 +375,12 @@ const TariffManagement: React.FC = () => {
         end_date: bulkRateConfig.end_date,
         min_weight: bulkRateConfig.min_weight,
         max_weight: bulkRateConfig.max_weight,
-        base_rate: bulkRateConfig.base_rate,
         minimum_tariff: bulkRateConfig.minimum_tariff,
         maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
         notes: bulkRateConfig.notes,
-        category_configs: enabledCategories.map(config => ({
+        category_rates: enabledCategories.map(config => ({
           category: config.category,
-          surcharge: config.surcharge
+          rate: config.rate
         }))
       };
 
@@ -579,7 +561,7 @@ const TariffManagement: React.FC = () => {
                           <div className="text-xs text-gray-500">
                             {route.configured_rate.category_surcharge > 0 && (
                               <div>
-                                Base: {(route.configured_rate.tariff_rate * 100).toFixed(1)}% + 
+                                Rate: {(route.configured_rate.tariff_rate * 100).toFixed(1)}% 
                                 Surcharge: {(route.configured_rate.category_surcharge * 100).toFixed(1)}% = 
                                 Total: {((route.configured_rate.tariff_rate + route.configured_rate.category_surcharge) * 100).toFixed(1)}%
                               </div>
@@ -814,20 +796,8 @@ const TariffManagement: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Base Rate (%)
+                        Category Rate (%)
                       </label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        value={(bulkRateConfig.base_rate * 100).toFixed(2)}
-                        onChange={(e) => setBulkRateConfig({
-                          ...bulkRateConfig,
-                          base_rate: (parseFloat(e.target.value) || 0) / 100
-                        })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
-                      />
                     </div>
 
                     <div>
@@ -897,10 +867,10 @@ const TariffManagement: React.FC = () => {
                             Category
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Surcharge (%)
+                            Rate (%)
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Combined Rate
+                            Effective Rate
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Maximum Tariff
@@ -934,12 +904,12 @@ const TariffManagement: React.FC = () => {
                                 min="0"
                                 max="100"
                                 step="0.01"
-                                value={(config.surcharge * 100).toFixed(2)}
+                                value={(config.rate * 100).toFixed(2)}
                                 onChange={(e) => {
                                   const newConfigs = [...bulkRateConfig.category_configs];
                                   newConfigs[index] = { 
                                     ...config, 
-                                    surcharge: (parseFloat(e.target.value) || 0) / 100 
+                                    rate: (parseFloat(e.target.value) || 0) / 100 
                                   };
                                   setBulkRateConfig({
                                     ...bulkRateConfig,
@@ -953,7 +923,7 @@ const TariffManagement: React.FC = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {config.enabled ? (
                                 <span className="font-medium">
-                                  {((bulkRateConfig.base_rate + config.surcharge) * 100).toFixed(2)}%
+                                  {(config.rate * 100).toFixed(2)}%
                                 </span>
                               ) : (
                                 <span className="text-gray-400">—</span>
@@ -1195,22 +1165,16 @@ const TariffManagement: React.FC = () => {
                         <span>Declared Value:</span>
                         <span className="font-medium">${calculationResult.declared_value.toFixed(2)}</span>
                       </div>
-                      {calculationResult.base_rate && (
+                      {calculationResult.tariff_rate && (
                         <div className="flex justify-between">
-                          <span>Base Rate:</span>
-                          <span className="font-medium">{(calculationResult.base_rate * 100).toFixed(2)}%</span>
+                          <span>Tariff Rate:</span>
+                          <span className="font-medium">{(calculationResult.tariff_rate * 100).toFixed(2)}%</span>
                         </div>
                       )}
-                      {calculationResult.surcharge_rate && calculationResult.surcharge_rate > 0 && (
+                      {calculationResult.has_category_specific_rate && (
                         <div className="flex justify-between">
-                          <span>Surcharge Rate:</span>
-                          <span className="font-medium">{(calculationResult.surcharge_rate * 100).toFixed(2)}%</span>
-                        </div>
-                      )}
-                      {calculationResult.combined_rate && (
-                        <div className="flex justify-between">
-                          <span>Combined Rate:</span>
-                          <span className="font-medium">{(calculationResult.combined_rate * 100).toFixed(2)}%</span>
+                          <span>Rate Type:</span>
+                          <span className="font-medium text-green-600">Category-Specific</span>
                         </div>
                       )}
                       {calculationResult.minimum_tariff && (

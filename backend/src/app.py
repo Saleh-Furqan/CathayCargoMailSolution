@@ -1059,8 +1059,7 @@ def calculate_tariff():
         
         if not result['fallback_used']:
             # Configured rate found - build detailed response
-            base_rate = result['base_rate']
-            surcharge_rate = result['surcharge_rate']
+            rate_used = result['rate_used']
             
             response = {
                 'origin_country': origin,
@@ -1071,23 +1070,12 @@ def calculate_tariff():
                 'declared_value': declared_value,
                 'calculated_tariff': result['tariff_amount'],
                 'calculation_method': result['calculation_method'],
-                'base_rate': result['base_rate_percentage'],
-                'surcharge_rate': result['surcharge_percentage'],
-                'combined_rate': result['combined_rate'],
-                'currency': base_rate.currency,
-                'minimum_tariff': base_rate.minimum_tariff,
-                'maximum_tariff': base_rate.maximum_tariff,
-                'base_rate_details': base_rate.to_dict() if base_rate else None,
-                'surcharge_rate_details': surcharge_rate.to_dict() if surcharge_rate else None,
-                'has_surcharge': surcharge_rate is not None,
-                'calculation_breakdown': {
-                    'base_percentage': round(result['base_rate_percentage'] * 100, 2),
-                    'surcharge_percentage': round(result['surcharge_percentage'] * 100, 2),
-                    'combined_percentage': round(result['combined_rate'] * 100, 2),
-                    'base_amount': round(declared_value * result['base_rate_percentage'], 2),
-                    'surcharge_amount': round(declared_value * result['surcharge_percentage'], 2),
-                    'total_amount': result['tariff_amount']
-                }
+                'tariff_rate': result['rate_percentage'],
+                'currency': rate_used.currency,
+                'minimum_tariff': rate_used.minimum_tariff,
+                'maximum_tariff': rate_used.maximum_tariff,
+                'rate_details': rate_used.to_dict() if rate_used else None,
+                'has_category_specific_rate': result['calculation_method'] == 'configured_category'
             }
             
             return jsonify(response)
@@ -1120,14 +1108,12 @@ def calculate_tariff():
                 'declared_value': declared_value,
                 'calculated_tariff': result['tariff_amount'],
                 'calculation_method': 'fallback',
-                'base_rate': result['base_rate_percentage'],
-                'surcharge_rate': 0.0,
-                'combined_rate': result['combined_rate'],
+                'tariff_rate': result['rate_percentage'],
                 'fallback_rate': result.get('fallback_rate', SystemConfig.get_fallback_rate()),
                 'historical_rate': round(suggested_rate, 4) if suggested_rate > 0 else None,
-                'has_surcharge': False,
-                'message': 'No configured base rate found, used fallback calculation',
-                'suggestion': 'Configure a base tariff rate for this route/service combination'
+                'has_category_specific_rate': False,
+                'message': 'No configured rate found for this route/category combination, used fallback calculation',
+                'suggestion': 'Configure a tariff rate for this route/category combination'
             })
         
     except Exception as e:
@@ -1541,21 +1527,17 @@ def batch_recalculate_tariffs():
                     shipment.postal_service = postal_service
                     shipment.shipment_date = ship_date
                     
-                    # Update rate information with base + surcharge tracking
-                    if tariff_result['base_rate']:
-                        shipment.tariff_rate_used = tariff_result['base_rate_percentage']
-                        shipment.base_rate_id = tariff_result['base_rate'].id
+                    # Update rate information with category-only tracking
+                    if tariff_result.get('rate_used'):
+                        shipment.tariff_rate_used = tariff_result['rate_percentage']
+                        shipment.base_rate_id = tariff_result['rate_used'].id
                     else:
-                        shipment.tariff_rate_used = SystemConfig.get_fallback_rate()
+                        shipment.tariff_rate_used = 0.0
                         shipment.base_rate_id = None
                     
-                    # Update surcharge information
-                    if tariff_result['surcharge_rate']:
-                        shipment.tariff_surcharge_used = tariff_result['surcharge_percentage']
-                        shipment.surcharge_rate_id = tariff_result['surcharge_rate'].id
-                    else:
-                        shipment.tariff_surcharge_used = 0.0
-                        shipment.surcharge_rate_id = None
+                    # No surcharge in category-only system
+                    shipment.tariff_surcharge_used = 0.0
+                    shipment.surcharge_rate_id = None
                     
                     updated_count += 1
                 
@@ -2194,7 +2176,7 @@ def calculate_enhanced_tariff():
         else:
             ship_date = date.today()
         
-        # Calculate using new surcharge system
+        # Calculate using new category-based rate system
         result = TariffRate.calculate_tariff_for_shipment(
             origin, destination, declared_value, goods_category, postal_service, ship_date, weight
         )
@@ -2216,17 +2198,13 @@ def calculate_enhanced_tariff():
                 'fallback_used': result['fallback_used']
             },
             'rate_breakdown': {
-                'base_rate_percentage': round(result['base_rate_percentage'] * 100, 2),
-                'surcharge_percentage': round(result['surcharge_percentage'] * 100, 2),
-                'combined_percentage': round(result['combined_rate'] * 100, 2),
-                'base_amount': round(declared_value * result['base_rate_percentage'], 2),
-                'surcharge_amount': round(declared_value * result['surcharge_percentage'], 2)
+                'rate_percentage': round(result['rate_percentage'] * 100, 2),
+                'rate_amount': result['tariff_amount']
             },
             'rates_used': {
-                'base_rate': result['base_rate'].to_dict() if result['base_rate'] else None,
-                'surcharge_rate': result['surcharge_rate'].to_dict() if result['surcharge_rate'] else None
+                'rate_used': result['rate_used'].to_dict() if result['rate_used'] else None
             },
-            'has_surcharge': result['surcharge_rate'] is not None
+            'has_category_specific_rate': result['calculation_method'] == 'configured_category'
         }
         
         return jsonify(response)
@@ -2253,15 +2231,14 @@ def create_bulk_tariff_rates():
         currency = data.get('currency', 'USD')
         notes = data.get('notes', '')
         
-        # Base rate and category configurations
-        base_rate = data.get('base_rate', 0.0)  # Base tariff rate
-        category_configs = data.get('category_configs', [])  # List of {category, surcharge}
+        # Category configurations - only category-specific rates
+        category_rates = data.get('category_rates', [])  # List of {category, rate}
         
         if not origin or not destination:
             return jsonify({'error': 'Origin and destination countries are required'}), 400
             
-        if not category_configs:
-            return jsonify({'error': 'At least one category configuration is required'}), 400
+        if not category_rates:
+            return jsonify({'error': 'At least one category rate is required'}), 400
         
         # Parse dates
         from datetime import datetime, date
@@ -2281,63 +2258,14 @@ def create_bulk_tariff_rates():
         created_rates = []
         errors = []
         
-        # Step 1: Create or update base rate (goods_category = '*')
-        try:
-            existing_base_rate = TariffRate.query.filter_by(
-                origin_country=origin,
-                destination_country=destination,
-                goods_category='*',
-                postal_service=postal_service,
-                start_date=start_date,
-                end_date=end_date,
-                min_weight=min_weight,
-                max_weight=max_weight
-            ).first()
-            
-            if existing_base_rate:
-                # Update existing base rate
-                existing_base_rate.tariff_rate = base_rate
-                existing_base_rate.category_surcharge = 0.0  # Base rate has no surcharge
-                existing_base_rate.minimum_tariff = minimum_tariff
-                existing_base_rate.maximum_tariff = maximum_tariff
-                existing_base_rate.currency = currency
-                existing_base_rate.notes = f"{notes} (Base rate updated via bulk)"
-                existing_base_rate.updated_at = datetime.now()
-                created_rates.append(existing_base_rate.to_dict())
-            else:
-                # Create new base rate
-                base_tariff_rate = TariffRate()
-                base_tariff_rate.origin_country = origin
-                base_tariff_rate.destination_country = destination
-                base_tariff_rate.goods_category = '*'
-                base_tariff_rate.postal_service = postal_service
-                base_tariff_rate.start_date = start_date
-                base_tariff_rate.end_date = end_date
-                base_tariff_rate.min_weight = min_weight
-                base_tariff_rate.max_weight = max_weight
-                base_tariff_rate.tariff_rate = base_rate
-                base_tariff_rate.category_surcharge = 0.0  # Base rate has no surcharge
-                base_tariff_rate.minimum_tariff = minimum_tariff
-                base_tariff_rate.maximum_tariff = maximum_tariff
-                base_tariff_rate.currency = currency
-                base_tariff_rate.is_active = True
-                base_tariff_rate.notes = f"{notes} (Base rate created via bulk)"
-                
-                db.session.add(base_tariff_rate)
-                created_rates.append({
-                    'goods_category': '*',
-                    'tariff_rate': base_rate,
-                    'category_surcharge': 0.0,
-                    'combined_rate': base_rate
-                })
-        except Exception as e:
-            errors.append(f"Failed to create base rate: {str(e)}")
-        
-        # Step 2: Create category surcharge rates
-        for config in category_configs:
+        # Create category-specific rates only
+        for config in category_rates:
             try:
                 goods_category = config.get('category', '*')
-                category_surcharge = config.get('surcharge', 0.0)
+                category_rate = float(config.get('rate', 0.0))
+                
+                if goods_category == '*':
+                    continue  # Skip wildcard category here, handled above
                 
                 # Check for existing rate
                 existing_rate = TariffRate.query.filter_by(
@@ -2352,17 +2280,17 @@ def create_bulk_tariff_rates():
                 ).first()
                 
                 if existing_rate:
-                    # Update existing surcharge rate
-                    existing_rate.tariff_rate = 0.0  # Surcharge rates have 0 base tariff
-                    existing_rate.category_surcharge = category_surcharge
+                    # Update existing category rate
+                    existing_rate.tariff_rate = category_rate
+                    existing_rate.category_surcharge = 0.0  # Not used anymore
                     existing_rate.minimum_tariff = minimum_tariff
                     existing_rate.maximum_tariff = maximum_tariff
                     existing_rate.currency = currency
-                    existing_rate.notes = f"{notes} (Surcharge rate updated via bulk)"
+                    existing_rate.notes = f"{notes} (Category rate updated via bulk)"
                     existing_rate.updated_at = datetime.now()
                     created_rates.append(existing_rate.to_dict())
                 else:
-                    # Create new surcharge rate
+                    # Create new category rate
                     new_rate = TariffRate()
                     new_rate.origin_country = origin
                     new_rate.destination_country = destination
@@ -2372,20 +2300,20 @@ def create_bulk_tariff_rates():
                     new_rate.end_date = end_date
                     new_rate.min_weight = min_weight
                     new_rate.max_weight = max_weight
-                    new_rate.tariff_rate = 0.0  # Surcharge rates have 0 base tariff
-                    new_rate.category_surcharge = category_surcharge
+                    new_rate.tariff_rate = category_rate
+                    new_rate.category_surcharge = 0.0  # Not used anymore
                     new_rate.minimum_tariff = minimum_tariff
                     new_rate.maximum_tariff = maximum_tariff
                     new_rate.currency = currency
                     new_rate.is_active = True
-                    new_rate.notes = f"{notes} (Surcharge rate created via bulk)"
+                    new_rate.notes = f"{notes} (Category rate created via bulk)"
                     
                     db.session.add(new_rate)
                     created_rates.append({
                         'goods_category': goods_category,
-                        'tariff_rate': 0.0,
-                        'category_surcharge': category_surcharge,
-                        'combined_rate': base_rate + category_surcharge
+                        'tariff_rate': category_rate,
+                        'category_surcharge': 0.0,
+                        'effective_rate': category_rate
                     })
                     
             except Exception as e:

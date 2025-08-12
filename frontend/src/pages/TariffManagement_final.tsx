@@ -62,7 +62,6 @@ interface BulkRateConfig {
   end_date: string;
   min_weight: number;
   max_weight: number;
-  base_rate: number;
   minimum_tariff: number;
   maximum_tariff: number;
   notes: string;

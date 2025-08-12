@@ -387,13 +387,12 @@ class ApiService {
     end_date?: string;
     min_weight?: number;
     max_weight?: number;
-    base_rate: number;
     minimum_tariff?: number;
     maximum_tariff?: number;
     notes?: string;
-    category_configs: Array<{
+    category_rates: Array<{
       category: string;
-      surcharge: number;
+      rate: number;
     }>;
   }) {
     const response = await fetch(`${API_BASE_URL}/tariff-rates/bulk`, {

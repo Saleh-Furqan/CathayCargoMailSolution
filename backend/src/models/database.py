@@ -136,13 +136,12 @@ class TariffRate(db.Model):
         }
     
     def calculate_tariff(self, declared_value):
-        """Calculate tariff amount for a given declared value using base rate + category surcharge"""
+        """Calculate tariff amount for a given declared value using category-specific rate"""
         if not self.is_active or declared_value <= 0:
             return 0.0
         
-        # Calculate using combined rate (base + surcharge)
-        combined_rate = self.tariff_rate + (self.category_surcharge or 0.0)
-        tariff_amount = declared_value * combined_rate
+        # Use the tariff_rate directly (no more base + surcharge concept)
+        tariff_amount = declared_value * self.tariff_rate
         
         # Apply minimum tariff
         if tariff_amount < self.minimum_tariff:
@@ -155,31 +154,32 @@ class TariffRate(db.Model):
         return round(tariff_amount, 2)
     
     def get_effective_rate(self):
-        """Get the effective tariff rate (base + surcharge)"""
-        return self.tariff_rate + (self.category_surcharge or 0.0)
+        """Get the effective tariff rate (direct category rate)"""
+        return self.tariff_rate
     
     def is_base_rate(self):
-        """Check if this is a base rate (no category surcharge)"""
-        return (self.category_surcharge or 0.0) == 0.0 and self.goods_category == '*'
+        """Check if this is a wildcard rate (goods_category = '*')"""
+        return self.goods_category == '*'
     
     def is_surcharge_rate(self):
-        """Check if this is a surcharge rate (has category surcharge)"""
-        return (self.category_surcharge or 0.0) > 0.0
+        """Check if this is a category-specific rate (goods_category != '*')"""
+        return self.goods_category != '*'
     
     @staticmethod
-    def find_base_rate(origin, destination, postal_service=None, ship_date=None, weight=None):
+    def find_category_rate(origin, destination, goods_category, postal_service=None, ship_date=None, weight=None):
         """
-        Find the base tariff rate for a route (goods_category = '*')
+        Find the tariff rate for a specific category only (no wildcard fallback)
         
         Args:
             origin: Origin country/station
             destination: Destination country/station
+            goods_category: Goods category (must be specific, not '*')
             postal_service: Postal service (optional, defaults to '*')
             ship_date: Shipment date (optional, defaults to today)
             weight: Package weight (optional, used for weight-based filtering)
         
         Returns:
-            TariffRate: Base rate for the route or None
+            TariffRate: Category rate or None
         """
         from datetime import date
         
@@ -188,171 +188,100 @@ class TariffRate(db.Model):
         if postal_service is None:
             postal_service = '*'
         
-        # Query base rates (goods_category = '*' or 'All')
-        base_query = TariffRate.query.filter(
-            TariffRate.origin_country == origin,
-            TariffRate.destination_country == destination,
-            TariffRate.goods_category.in_(['*', 'All']),
-            TariffRate.is_active == True,
-            TariffRate.start_date <= ship_date,
-            TariffRate.end_date >= ship_date
-        )
-        
-        # Filter by postal service
-        base_rates = [r for r in base_query.all() 
-                     if r.postal_service in (postal_service, '*')]
-        
-        if not base_rates:
+        # Only look for specific category rates (no wildcard fallback)
+        if not goods_category or goods_category == '*':
             return None
         
-        # Filter by weight if provided
-        if weight is not None:
-            weight_matches = [r for r in base_rates 
-                            if r.min_weight <= weight <= r.max_weight]
-            if weight_matches:
-                base_rates = weight_matches
-        
-        # Sort by specificity (most specific postal service first)
-        def specificity_score(rate):
-            return 1 if rate.postal_service != '*' else 0
-        
-        base_rates.sort(key=specificity_score, reverse=True)
-        return base_rates[0]
-    
-    @staticmethod
-    def find_surcharge_rate(origin, destination, goods_category, postal_service=None, ship_date=None, weight=None):
-        """
-        Find category-specific surcharge rate for a route
-        
-        Args:
-            origin: Origin country/station
-            destination: Destination country/station
-            goods_category: Specific goods category (not '*')
-            postal_service: Postal service (optional, defaults to '*')
-            ship_date: Shipment date (optional, defaults to today)
-            weight: Package weight (optional, used for weight-based filtering)
-        
-        Returns:
-            TariffRate: Category surcharge rate or None
-        """
-        from datetime import date
-        
-        if ship_date is None:
-            ship_date = date.today()
-        if postal_service is None:
-            postal_service = '*'
-        if goods_category in ('*', 'All'):
-            return None  # No surcharge for wildcard categories
-        
-        # Query surcharge rates (specific goods_category and category_surcharge > 0)
-        surcharge_query = TariffRate.query.filter(
+        specific_query = TariffRate.query.filter(
             TariffRate.origin_country == origin,
             TariffRate.destination_country == destination,
             TariffRate.goods_category == goods_category,
-            TariffRate.category_surcharge > 0,
             TariffRate.is_active == True,
             TariffRate.start_date <= ship_date,
             TariffRate.end_date >= ship_date
         )
         
         # Filter by postal service
-        surcharge_rates = [r for r in surcharge_query.all() 
-                          if r.postal_service in (postal_service, '*')]
-        
-        if not surcharge_rates:
-            return None
+        specific_rates = [r for r in specific_query.all() 
+                         if r.postal_service in (postal_service, '*')]
         
         # Filter by weight if provided
-        if weight is not None:
-            weight_matches = [r for r in surcharge_rates 
+        if weight is not None and specific_rates:
+            weight_matches = [r for r in specific_rates 
                             if r.min_weight <= weight <= r.max_weight]
             if weight_matches:
-                surcharge_rates = weight_matches
+                specific_rates = weight_matches
         
-        # Sort by specificity (most specific postal service first)
-        def specificity_score(rate):
-            return 1 if rate.postal_service != '*' else 0
+        if specific_rates:
+            # Sort by specificity (most specific postal service first)
+            def specificity_score(rate):
+                return 1 if rate.postal_service != '*' else 0
+            
+            specific_rates.sort(key=specificity_score, reverse=True)
+            return specific_rates[0]
         
-        surcharge_rates.sort(key=specificity_score, reverse=True)
-        return surcharge_rates[0]
+        return None
     
     @staticmethod
     def calculate_tariff_for_shipment(origin, destination, declared_value, 
                                     goods_category=None, postal_service=None, ship_date=None, weight=None):
         """
-        Calculate tariff for a shipment using base rate + category surcharge system
+        Calculate tariff for a shipment using direct category-based rates only
         
         Returns:
             dict: {
                 'tariff_amount': float,
-                'base_rate': TariffRate or None,
-                'surcharge_rate': TariffRate or None,
-                'combined_rate': float,
-                'base_rate_percentage': float,
-                'surcharge_percentage': float,
+                'rate_used': TariffRate or None,
+                'rate_percentage': float,
                 'calculation_method': str,
-                'fallback_used': bool
+                'error': str (if no rate found)
             }
         """
         from datetime import date
         
-        if goods_category is None:
-            goods_category = '*'
         if postal_service is None:
             postal_service = '*'
         if ship_date is None:
             ship_date = date.today()
         
-        # Step 1: Find base rate for the route
-        base_rate = TariffRate.find_base_rate(origin, destination, postal_service, ship_date, weight)
+        # Require specific category (no wildcard)
+        if not goods_category or goods_category == '*':
+            return {
+                'tariff_amount': 0,
+                'rate_used': None,
+                'rate_percentage': 0,
+                'calculation_method': 'error',
+                'error': 'Specific goods category required for tariff calculation'
+            }
         
-        # Step 2: Find category surcharge if goods_category is specific
-        surcharge_rate = None
-        if goods_category not in ('*', 'All'):
-            surcharge_rate = TariffRate.find_surcharge_rate(origin, destination, goods_category, postal_service, ship_date, weight)
+        # Find the appropriate rate for the category
+        rate_used = TariffRate.find_category_rate(origin, destination, goods_category, postal_service, ship_date, weight)
         
-        if base_rate:
-            # Calculate combined rate
-            base_percentage = base_rate.tariff_rate
-            surcharge_percentage = surcharge_rate.category_surcharge if surcharge_rate else 0.0
-            combined_rate = base_percentage + surcharge_percentage
+        if rate_used:
+            # Calculate tariff amount using the found rate
+            tariff_amount = declared_value * rate_used.tariff_rate
             
-            # Calculate tariff amount
-            tariff_amount = declared_value * combined_rate
-            
-            # Apply minimum/maximum limits from base rate
-            if tariff_amount < base_rate.minimum_tariff:
-                tariff_amount = base_rate.minimum_tariff
-            if base_rate.maximum_tariff and tariff_amount > base_rate.maximum_tariff:
-                tariff_amount = base_rate.maximum_tariff
-            
-            calculation_method = 'configured_with_surcharge' if surcharge_rate else 'configured_no_surcharge'
+            # Apply minimum/maximum limits
+            if tariff_amount < rate_used.minimum_tariff:
+                tariff_amount = rate_used.minimum_tariff
+            if rate_used.maximum_tariff and tariff_amount > rate_used.maximum_tariff:
+                tariff_amount = rate_used.maximum_tariff
             
             return {
                 'tariff_amount': round(tariff_amount, 2),
-                'base_rate': base_rate,
-                'surcharge_rate': surcharge_rate,
-                'combined_rate': combined_rate,
-                'base_rate_percentage': base_percentage,
-                'surcharge_percentage': surcharge_percentage,
-                'calculation_method': calculation_method,
-                'fallback_used': False
+                'rate_used': rate_used,
+                'rate_percentage': rate_used.tariff_rate,
+                'calculation_method': 'configured_category',
+                'error': None
             }
         else:
-            # Fallback: use dynamic fallback rate
-            fallback_rate = SystemConfig.get_fallback_rate()
-            tariff_amount = declared_value * fallback_rate
-            
+            # No fallback - return error
             return {
-                'tariff_amount': round(tariff_amount, 2),
-                'base_rate': None,
-                'surcharge_rate': None,
-                'combined_rate': fallback_rate,
-                'base_rate_percentage': fallback_rate,
-                'surcharge_percentage': 0.0,
-                'calculation_method': 'fallback',
-                'fallback_used': True,
-                'fallback_rate': fallback_rate
+                'tariff_amount': 0,
+                'rate_used': None,
+                'rate_percentage': 0,
+                'calculation_method': 'error',
+                'error': f'No tariff rate found for category "{goods_category}" from {origin} to {destination}'
             }
 
 class ProcessedShipment(db.Model):
@@ -580,12 +509,11 @@ class SystemConfig(db.Model):
             config.description = description or config.description
             config.updated_at = datetime.utcnow()
         else:
-            config = cls(
-                config_key=key,
-                config_value=str(value),
-                config_type=config_type,
-                description=description
-            )
+            config = cls()
+            config.config_key = key
+            config.config_value = str(value)
+            config.config_type = config_type
+            config.description = description
             db.session.add(config)
         
         db.session.commit()
