@@ -59,6 +59,11 @@ CATEGORY_MAPPINGS = {
     'Sports & Fitness': [
         'sport', 'fitness', 'exercise', 'gym', 'ball', 'racket', 'golf',
         'tennis', 'basketball', 'football', 'soccer', 'running', 'yoga'
+    ],
+    'General Merchandise': [
+        'merchandise', 'general', 'item', 'product', 'goods', 'misc',
+        'miscellaneous', 'other', 'various', 'mixed', 'assorted', 'gift',
+        'souvenir', 'personal effects', 'household items', 'personal items'
     ]
 }
 

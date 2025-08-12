@@ -345,9 +345,9 @@ const TariffManagement: React.FC = () => {
         minimum_tariff: bulkRateConfig.minimum_tariff,
         maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
         notes: bulkRateConfig.notes,
-        category_configs: enabledCategories.map(config => ({
+        category_rates: enabledCategories.map(config => ({
           category: config.category,
-          surcharge: config.surcharge
+          rate: config.surcharge
         }))
       };
 
