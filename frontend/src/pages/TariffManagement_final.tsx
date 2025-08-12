@@ -23,6 +23,8 @@ interface TariffRoute {
   total_declared_value: number;
   total_tariff_amount: number;
   historical_rate: number;
+  start_date?: string;
+  end_date?: string;
   configured_rate?: TariffRateConfig;
   has_configured_rate: boolean;
 }
@@ -482,6 +484,12 @@ const TariffManagement: React.FC = () => {
                     Total Value
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Start Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    End Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Current Rate
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -508,10 +516,16 @@ const TariffManagement: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDisplayValue(route.shipment_count, 'count')}
+                      {route.shipment_count.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDisplayValue(route.total_declared_value, 'currency')}
+                      ${route.total_declared_value.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {route.start_date || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {route.end_date || 'N/A'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {route.has_configured_rate && route.configured_rate ? (

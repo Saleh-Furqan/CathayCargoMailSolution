@@ -679,6 +679,15 @@ def get_tariff_routes():
             if route.total_declared_value and route.total_declared_value > 0:
                 historical_rate = (route.total_tariff_amount or 0) / route.total_declared_value
             
+            # Use configured tariff rate dates if available, otherwise N/A
+            start_date = None
+            end_date = None
+            
+            if tariff_rate_config:
+                # Format dates from tariff configuration as YYYY-MM-DD
+                start_date = tariff_rate_config.start_date.strftime('%Y-%m-%d') if tariff_rate_config.start_date else None
+                end_date = tariff_rate_config.end_date.strftime('%Y-%m-%d') if tariff_rate_config.end_date else None
+            
             routes.append({
                 'origin': origin,
                 'destination': destination,
@@ -687,6 +696,8 @@ def get_tariff_routes():
                 'total_declared_value': round(route.total_declared_value or 0, 2),
                 'total_tariff_amount': round(route.total_tariff_amount or 0, 2),
                 'historical_rate': round(historical_rate, 4),
+                'start_date': start_date,
+                'end_date': end_date,
                 'configured_rate': tariff_rate_config.to_dict() if tariff_rate_config else None,
                 'has_configured_rate': tariff_rate_config is not None
             })

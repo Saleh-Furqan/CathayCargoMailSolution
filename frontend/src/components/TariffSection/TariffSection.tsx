@@ -7,6 +7,7 @@ interface TariffInfo {
   declared_value_usd: string;
   departure_station: string;
   destination: string;
+  arrival_date?: string;
 }
 
 interface TariffSectionProps {
@@ -20,6 +21,14 @@ const TariffSection: React.FC<TariffSectionProps> = ({
   title = "Tariff Information",
   showDetails = true 
 }) => {
+  // Helper function to format date as YYYY-MM-DD
+  const formatDate = (dateStr?: string): string => {
+    if (!dateStr) return 'N/A';
+    // Extract date part (remove time if present)
+    const datePart = dateStr.split('T')[0] || dateStr.split(' ')[0] || dateStr;
+    return datePart;
+  };
+
   // Calculate summary statistics
   const totalDeclaredValue = data.reduce((sum, item) => {
     // Clean the declared value string by removing currency symbols and spaces
@@ -128,6 +137,9 @@ const TariffSection: React.FC<TariffSectionProps> = ({
                     Declared Value
                   </th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Arrival Date
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Tariff Rate
                   </th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -159,6 +171,9 @@ const TariffSection: React.FC<TariffSectionProps> = ({
                       </td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                         ${declaredValue.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                        {formatDate(item.arrival_date)}
                       </td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm">
                         <span className={`font-medium ${
