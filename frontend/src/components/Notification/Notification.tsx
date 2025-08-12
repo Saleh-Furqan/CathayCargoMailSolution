@@ -57,7 +57,7 @@ const Notification: React.FC<NotificationProps> = ({
 
   return (
     <div
-      className={`fixed top-4 right-4 z-[9999] max-w-sm w-full border rounded-lg p-4 shadow-lg transition-all duration-300 ${
+      className={`fixed notification-position right-4 z-[9999] max-w-sm w-full border rounded-lg p-4 shadow-lg transition-all duration-300 ${
         isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
       } ${getStyles()}`}
     >

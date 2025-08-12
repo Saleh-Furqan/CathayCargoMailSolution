@@ -379,6 +379,17 @@
     @apply space-y-4 sm:space-y-6;
   }
 
+  /* Notification positioning to avoid header */
+  .notification-position {
+    top: calc(4rem + 1rem); /* Desktop header height (4rem) + 1rem gap */
+  }
+  
+  @media (max-width: 1023px) {
+    .notification-position {
+      top: calc(3.5rem + 1.5rem); /* Mobile header height (3.5rem) + 1.5rem gap for mobile menu */
+    }
+  }
+
   /* Cathay Pacific Component Styles */
   .cathay-card {
     @apply bg-white/95 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-lg shadow-slate-900/5 hover:shadow-xl hover:shadow-slate-900/10 transition-all duration-300;

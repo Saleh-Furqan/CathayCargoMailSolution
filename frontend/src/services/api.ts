@@ -379,6 +379,39 @@ class ApiService {
     return response.json();
   }
 
+  async createBulkTariffRates(bulkData: {
+    origin_country: string;
+    destination_country: string;
+    postal_service?: string;
+    start_date?: string;
+    end_date?: string;
+    min_weight?: number;
+    max_weight?: number;
+    base_rate: number;
+    minimum_tariff?: number;
+    maximum_tariff?: number;
+    notes?: string;
+    category_configs: Array<{
+      category: string;
+      surcharge: number;
+    }>;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/tariff-rates/bulk`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bulkData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to create bulk rates');
+    }
+
+    return response.json();
+  }
+
   // Legacy methods - kept for backward compatibility but no longer send data
   async processData(_data: any[]): Promise<ProcessDataResponse> {
     // This method is now deprecated - all processing happens in backend

@@ -455,20 +455,7 @@ const TariffManagement: React.FC = () => {
         }))
       };
 
-      const response = await fetch('/tariff-rates/bulk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(bulkData)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create bulk rates');
-      }
-
-      const result = await response.json();
+      const result = await apiService.createBulkTariffRates(bulkData);
       showNotification(
         `Created ${result.total_created} tariff rates for ${bulkRateConfig.origin} → ${bulkRateConfig.destination}`, 
         'success'
@@ -512,10 +499,10 @@ const TariffManagement: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Notification */}
+    <>
+      {/* Notification - positioned outside main content flow */}
       {notification && (
-        <div className={`fixed top-4 right-4 z-[9999] p-4 rounded-md shadow-lg flex items-center gap-3 ${
+        <div className={`fixed notification-position right-4 z-[9999] p-4 rounded-md shadow-lg flex items-center gap-3 ${
           notification.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' :
           notification.type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' :
           'bg-blue-100 text-blue-800 border border-blue-200'
@@ -530,8 +517,9 @@ const TariffManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-start">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <Settings className="h-8 w-8 text-cathay-teal" />
@@ -1608,7 +1596,8 @@ const TariffManagement: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 
