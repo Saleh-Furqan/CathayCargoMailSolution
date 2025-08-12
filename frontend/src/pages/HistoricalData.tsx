@@ -89,6 +89,7 @@ const HistoricalData: React.FC = () => {
         'CARDIT': item.cardit || '',
         'Tracking Number': item.tracking_number || '',
         'Receptacle': item.receptacle_id || '',
+        'Classification': item.goods_category || '',
         
         // Flight and routing (NEW CNP+IODA structure)
         'Origin Station': item.host_origin_station || '',
@@ -439,6 +440,9 @@ const HistoricalData: React.FC = () => {
                         CARDIT / Tracking
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Classification
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Route & Station
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -483,6 +487,11 @@ const HistoricalData: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">CARDIT: {record['CARDIT'] || 'N/A'}</div>
                             <div className="text-sm text-gray-500 font-mono">Tracking: {record['Tracking Number'] || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-blue-600">
+                              {record['Classification'] || 'Unknown'}
+                            </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">
