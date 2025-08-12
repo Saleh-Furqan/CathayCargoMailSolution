@@ -1135,8 +1135,14 @@ def calculate_tariff():
 
 @app.route('/tariff-categories', methods=['GET'])
 def get_tariff_categories():
-    """Get all available goods categories from configured rates and processed shipments"""
+    """Get all available goods categories from predefined mappings, configured rates and processed shipments"""
     try:
+        # Start with predefined categories from classification config
+        from config.classification import get_category_mappings
+        category_mappings = get_category_mappings()
+        categories = set(['*'])  # Always include wildcard
+        categories.update(category_mappings.keys())  # Add all predefined categories
+        
         # Get categories from configured rates
         rate_categories = db.session.query(TariffRate.goods_category).filter(
             TariffRate.is_active == True,
@@ -1149,13 +1155,15 @@ def get_tariff_categories():
             ProcessedShipment.goods_category != ''
         ).distinct().all()
         
-        categories = set(['*'])  # Always include wildcard
+        # Add categories from rates and shipments
         categories.update([c[0] for c in rate_categories if c[0]])
         categories.update([c[0] for c in shipment_categories if c[0]])
         
         return jsonify({
             'categories': sorted(list(categories)),
-            'total_categories': len(categories)
+            'total_categories': len(categories),
+            'predefined_categories': sorted(list(category_mappings.keys())),
+            'total_predefined': len(category_mappings)
         })
         
     except Exception as e:
