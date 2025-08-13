@@ -43,6 +43,8 @@ class ApiService {
     goodsCategory?: string;
     postalService?: string;
     calculationMethod?: string;
+    originStation?: string;
+    destinationStation?: string;
   }) {
     const response = await fetch(`${API_BASE_URL}/historical-data`, {
       method: 'POST',
@@ -64,12 +66,21 @@ class ApiService {
   }
 
 
-  async generateChinaPostFile(): Promise<Blob> {
+  async generateChinaPostFile(filters?: {
+    startDate?: string;
+    endDate?: string;
+    goodsCategory?: string;
+    postalService?: string;
+    calculationMethod?: string;
+    originStation?: string;
+    destinationStation?: string;
+  }): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/generate-chinapost`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify(filters || {}),
     });
 
     if (!response.ok) {
@@ -80,12 +91,21 @@ class ApiService {
     return response.blob();
   }
 
-  async generateCBDFile(): Promise<Blob> {
+  async generateCBDFile(filters?: {
+    startDate?: string;
+    endDate?: string;
+    goodsCategory?: string;
+    postalService?: string;
+    calculationMethod?: string;
+    originStation?: string;
+    destinationStation?: string;
+  }): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/generate-cbd`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify(filters || {}),
     });
 
     if (!response.ok) {
@@ -131,6 +151,8 @@ class ApiService {
     goodsCategory?: string;
     postalService?: string;
     calculationMethod?: string;
+    originStation?: string;
+    destinationStation?: string;
   }) {
     const url = `${API_BASE_URL}/get-analytics-data`;
     const options: RequestInit = {
@@ -309,6 +331,16 @@ class ApiService {
     
     if (!response.ok) {
       throw new Error('Failed to get tariff services');
+    }
+    
+    return response.json();
+  }
+
+  async getStations() {
+    const response = await fetch(`${API_BASE_URL}/get-stations`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get stations');
     }
     
     return response.json();

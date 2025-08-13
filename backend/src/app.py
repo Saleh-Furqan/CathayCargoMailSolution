@@ -241,38 +241,10 @@ def get_historical_data():
     """Get historical processed shipment data with enhanced filtering - NO FRONTEND PROCESSING"""
     try:
         data = request.json or {}
-        start_date = data.get('startDate')
-        end_date = data.get('endDate')
-        goods_category = data.get('goodsCategory')
-        postal_service = data.get('postalService')
-        calculation_method = data.get('calculationMethod')
-
-        # Query the database
-        query = ProcessedShipment.query
-
-        if start_date and end_date:
-            # Filter by arrival_date field (converted to date)
-            query = query.filter(
-                and_(
-                    ProcessedShipment.arrival_date.isnot(None),
-                    ProcessedShipment.arrival_date != '',
-                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
-                    func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
-                )
-            )
         
-        # Enhanced filtering by goods category
-        if goods_category and goods_category != '*':
-            query = query.filter(ProcessedShipment.goods_category == goods_category)
+        # Use the shared filtering function
+        query = build_filtered_shipment_query(data)
         
-        # Enhanced filtering by postal service
-        if postal_service and postal_service != '*':
-            query = query.filter(ProcessedShipment.postal_service == postal_service)
-        
-        # Enhanced filtering by calculation method
-        if calculation_method and calculation_method != 'all':
-            query = query.filter(ProcessedShipment.tariff_calculation_method == calculation_method)
-
         # Execute query and return RAW database records
         entries = query.all()
         
@@ -309,15 +281,67 @@ def get_historical_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def build_filtered_shipment_query(filters=None):
+    """Helper function to build filtered shipment query with same logic as historical-data endpoint"""
+    query = ProcessedShipment.query
+    
+    if not filters:
+        return query
+    
+    start_date = filters.get('startDate')
+    end_date = filters.get('endDate')
+    goods_category = filters.get('goodsCategory')
+    postal_service = filters.get('postalService')
+    calculation_method = filters.get('calculationMethod')
+    origin_station = filters.get('originStation')
+    destination_station = filters.get('destinationStation')
+
+    if start_date and end_date:
+        # Filter by arrival_date field (converted to date)
+        query = query.filter(
+            and_(
+                ProcessedShipment.arrival_date.isnot(None),
+                ProcessedShipment.arrival_date != '',
+                func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
+                func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
+            )
+        )
+    
+    # Enhanced filtering by origin station
+    if origin_station and origin_station != '*':
+        query = query.filter(ProcessedShipment.host_origin_station == origin_station)
+    
+    # Enhanced filtering by destination station
+    if destination_station and destination_station != '*':
+        query = query.filter(ProcessedShipment.host_destination_station == destination_station)
+    
+    # Enhanced filtering by goods category
+    if goods_category and goods_category != '*':
+        query = query.filter(ProcessedShipment.goods_category == goods_category)
+    
+    # Enhanced filtering by postal service
+    if postal_service and postal_service != '*':
+        query = query.filter(ProcessedShipment.postal_service == postal_service)
+    
+    # Enhanced filtering by calculation method
+    if calculation_method and calculation_method != 'all':
+        query = query.filter(ProcessedShipment.tariff_calculation_method == calculation_method)
+    
+    return query
+
 @app.route('/generate-chinapost', methods=['POST'])
 def generate_chinapost():
-    """Generate CHINAPOST export file - NO FRONTEND DATA NEEDED"""
+    """Generate CHINAPOST export file with optional filtering"""
     try:
-        # Get data directly from database
-        entries = ProcessedShipment.query.all()
+        # Get filters from request body (same as historical-data endpoint)
+        data = request.json or {}
+        
+        # Build filtered query
+        query = build_filtered_shipment_query(data)
+        entries = query.all()
         
         if not entries:
-            return jsonify({"error": "No processed data available"}), 400
+            return jsonify({"error": "No processed data available for the specified filters"}), 400
         
         # Convert database records to CHINAPOST format
         chinapost_data = []
@@ -344,13 +368,17 @@ def generate_chinapost():
 
 @app.route('/generate-cbd', methods=['POST'])
 def generate_cbd():
-    """Generate CBD export file - NO FRONTEND DATA NEEDED"""
+    """Generate CBD export file with optional filtering"""
     try:
-        # Get data directly from database
-        entries = ProcessedShipment.query.all()
+        # Get filters from request body (same as historical-data endpoint)
+        data = request.json or {}
+        
+        # Build filtered query
+        query = build_filtered_shipment_query(data)
+        entries = query.all()
         
         if not entries:
-            return jsonify({"error": "No processed data available"}), 400
+            return jsonify({"error": "No processed data available for the specified filters"}), 400
         
         # Convert database records to CBD format
         cbd_data = []
@@ -380,38 +408,11 @@ def get_analytics_data():
     """Get analytics data for dashboard with enhanced filtering - BACKEND PROCESSED ONLY"""
     try:
         # Get query parameters for date filtering
-        query = ProcessedShipment.query
-        
         if request.method == 'POST':
-            data = request.json or {} or {}
-            start_date = data.get('startDate')
-            end_date = data.get('endDate')
-            goods_category = data.get('goodsCategory')
-            postal_service = data.get('postalService')
-            calculation_method = data.get('calculationMethod')  # 'configured', 'fallback', or 'all'
-            
-            if start_date and end_date:
-                # Filter by arrival_date field (same logic as historical-data endpoint)
-                query = query.filter(
-                    and_(
-                        ProcessedShipment.arrival_date.isnot(None),
-                        ProcessedShipment.arrival_date != '',
-                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
-                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
-                    )
-                )
-            
-            # Enhanced filtering by goods category
-            if goods_category and goods_category != '*':
-                query = query.filter(ProcessedShipment.goods_category == goods_category)
-            
-            # Enhanced filtering by postal service
-            if postal_service and postal_service != '*':
-                query = query.filter(ProcessedShipment.postal_service == postal_service)
-            
-            # Enhanced filtering by calculation method
-            if calculation_method and calculation_method != 'all':
-                query = query.filter(ProcessedShipment.tariff_calculation_method == calculation_method)
+            data = request.json or {}
+            query = build_filtered_shipment_query(data)
+        else:
+            query = ProcessedShipment.query
         
         # Execute query
         entries = query.all()
@@ -705,6 +706,47 @@ def get_tariff_routes():
         return jsonify({
             'routes': routes,
             'total_routes': len(routes)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/get-stations', methods=['GET'])
+def get_stations():
+    """Get all unique origin and destination stations from shipment data"""
+    try:
+        # Get unique origin stations
+        origins_query = db.session.query(
+            ProcessedShipment.host_origin_station
+        ).filter(
+            and_(
+                ProcessedShipment.host_origin_station.isnot(None),
+                ProcessedShipment.host_origin_station != ''
+            )
+        ).distinct().all()
+        
+        # Get unique destination stations
+        destinations_query = db.session.query(
+            ProcessedShipment.host_destination_station
+        ).filter(
+            and_(
+                ProcessedShipment.host_destination_station.isnot(None),
+                ProcessedShipment.host_destination_station != ''
+            )
+        ).distinct().all()
+        
+        origins = [origin[0] for origin in origins_query if origin[0]]
+        destinations = [dest[0] for dest in destinations_query if dest[0]]
+        
+        # Sort alphabetically
+        origins.sort()
+        destinations.sort()
+        
+        return jsonify({
+            'origins': origins,
+            'destinations': destinations,
+            'total_origins': len(origins),
+            'total_destinations': len(destinations)
         })
         
     except Exception as e:

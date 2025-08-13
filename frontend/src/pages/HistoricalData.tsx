@@ -23,6 +23,9 @@ import Notification from '../components/Notification/Notification';
 const HistoricalData: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [originStation, setOriginStation] = useState('');
+  const [destinationStation, setDestinationStation] = useState('');
+  const [availableStations, setAvailableStations] = useState<{origins: string[], destinations: string[]}>({origins: [], destinations: []});
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'cbp' | 'china-post'>('overview');
   const [historicalData, setHistoricalData] = useState<any[]>([]);
@@ -66,7 +69,30 @@ const HistoricalData: React.FC = () => {
     setStartDate(defaultStartDate.toISOString().split('T')[0]);
     setEndDate(new Date().toISOString().split('T')[0]);
     fetchHistoricalData();
+    loadAvailableStations();
   }, []);
+
+  const loadAvailableStations = async () => {
+    try {
+      const stationsResponse = await apiService.getStations();
+      setAvailableStations({
+        origins: stationsResponse.origins || [],
+        destinations: stationsResponse.destinations || []
+      });
+    } catch (error) {
+      console.error('Error loading stations:', error);
+      setNotification({
+        message: 'Failed to load available stations',
+        type: 'warning'
+      });
+    }
+  };
+
+  const resetFilters = () => {
+    setOriginStation('');
+    setDestinationStation('');
+    // Don't automatically refresh - let the user click "Update Dashboard" themselves
+  };
 
   const fetchHistoricalData = async () => {
     if (!startDate || !endDate) return;
@@ -74,10 +100,19 @@ const HistoricalData: React.FC = () => {
     try {
       setIsLoading(true);
       
-      // Fetch both historical data and analytics from backend with same date range
+      // Build filters object
+      const filters: any = {};
+      if (originStation && originStation !== '') {
+        filters.originStation = originStation;
+      }
+      if (destinationStation && destinationStation !== '') {
+        filters.destinationStation = destinationStation;
+      }
+      
+      // Fetch both historical data and analytics from backend with same date range and filters
       const [historyResponse, analyticsResponse] = await Promise.all([
-        apiService.getHistoricalData(startDate, endDate),
-        apiService.getAnalytics(startDate, endDate)
+        apiService.getHistoricalData(startDate, endDate, filters),
+        apiService.getAnalytics(startDate, endDate, filters)
       ]);
       
       // Format data using NEW CNP+IODA backend structure - NO FRONTEND PROCESSING
@@ -129,8 +164,15 @@ const HistoricalData: React.FC = () => {
         results: historyResponse.results,
         total_records: historyResponse.total_records
       });
+      
+      // Build filter description for notification
+      const appliedFilters = [];
+      if (originStation) appliedFilters.push(`Origin: ${originStation}`);
+      if (destinationStation) appliedFilters.push(`Destination: ${destinationStation}`);
+      const filterText = appliedFilters.length > 0 ? ` (Filters: ${appliedFilters.join(', ')})` : '';
+      
       setNotification({
-        message: `Successfully retrieved ${historyResponse.total_records} records`,
+        message: `Successfully retrieved ${historyResponse.total_records} records${filterText}`,
         type: 'success'
       });
     } catch (error) {
@@ -154,11 +196,24 @@ const HistoricalData: React.FC = () => {
     }
 
     try {
-      // Backend generates file directly from database - no frontend data needed
-      const blob = await apiService.generateChinaPostFile();
-      downloadBlob(blob, `china_post_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      // Build filters object to match current query
+      const filters: any = {};
+      if (startDate && endDate) {
+        filters.startDate = startDate;
+        filters.endDate = endDate;
+      }
+      if (originStation && originStation !== '') {
+        filters.originStation = originStation;
+      }
+      if (destinationStation && destinationStation !== '') {
+        filters.destinationStation = destinationStation;
+      }
+
+      // Backend generates file directly from database with filters applied
+      const blob = await apiService.generateChinaPostFile(filters);
+      downloadBlob(blob, `china_post_filtered_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
-        message: 'China Post file generated successfully',
+        message: 'China Post file generated successfully with current filters',
         type: 'success'
       });
     } catch (error) {
@@ -180,11 +235,24 @@ const HistoricalData: React.FC = () => {
     }
 
     try {
-      // Backend generates file directly from database - no frontend data needed
-      const blob = await apiService.generateCBDFile();
-      downloadBlob(blob, `cbp_historical_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      // Build filters object to match current query
+      const filters: any = {};
+      if (startDate && endDate) {
+        filters.startDate = startDate;
+        filters.endDate = endDate;
+      }
+      if (originStation && originStation !== '') {
+        filters.originStation = originStation;
+      }
+      if (destinationStation && destinationStation !== '') {
+        filters.destinationStation = destinationStation;
+      }
+
+      // Backend generates file directly from database with filters applied
+      const blob = await apiService.generateCBDFile(filters);
+      downloadBlob(blob, `cbp_filtered_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
-        message: 'CBP file generated successfully',
+        message: 'CBP file generated successfully with current filters',
         type: 'success'
       });
     } catch (error) {
@@ -315,9 +383,9 @@ const HistoricalData: React.FC = () => {
         )}
       </div>
 
-      {/* Date Range Selector */}
+      {/* Date Range and Filters Selector */}
       <div className="card p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Start Date
@@ -341,6 +409,40 @@ const HistoricalData: React.FC = () => {
             />
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Origin Station
+            </label>
+            <select
+              value={originStation}
+              onChange={(e) => setOriginStation(e.target.value)}
+              className="input-field w-full"
+            >
+              <option value="">All Origins</option>
+              {availableStations.origins.map((origin) => (
+                <option key={origin} value={origin}>
+                  {origin}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Destination Station
+            </label>
+            <select
+              value={destinationStation}
+              onChange={(e) => setDestinationStation(e.target.value)}
+              className="input-field w-full"
+            >
+              <option value="">All Destinations</option>
+              {availableStations.destinations.map((destination) => (
+                <option key={destination} value={destination}>
+                  {destination}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <button
               onClick={fetchHistoricalData}
               disabled={isLoading}
@@ -354,7 +456,24 @@ const HistoricalData: React.FC = () => {
               <span>{isLoading ? 'Loading...' : 'Update Dashboard'}</span>
             </button>
           </div>
+          <div>
+            <button
+              onClick={resetFilters}
+              disabled={isLoading}
+              className="btn-secondary w-full h-10 flex items-center justify-center space-x-2"
+            >
+              <X className="h-4 w-4" />
+              <span>Clear Filters</span>
+            </button>
+          </div>
         </div>
+        {(originStation || destinationStation) && (
+          <div className="mt-3 text-sm text-gray-600">
+            <span className="font-medium">Active Filters:</span>
+            {originStation && <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded">Origin: {originStation}</span>}
+            {destinationStation && <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded">Destination: {destinationStation}</span>}
+          </div>
+        )}
       </div>
 
       {/* Tab Navigation */}
