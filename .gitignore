@@ -118,3 +118,7 @@ wheels/
 # Screenshots and images
 Screenshot*.png
 *.png:Zone.Identifier
+
+# Database files
+backend/data/shipments.db
+*.db

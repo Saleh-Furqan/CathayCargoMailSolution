@@ -450,6 +450,121 @@ class ProcessedShipment(db.Model):
         }
 
 
+class FileUploadHistory(db.Model):
+    """Model for tracking file upload history and their associated exports"""
+    __tablename__ = 'file_upload_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    
+    # Original file information
+    original_filename = db.Column(db.String(255), nullable=False)
+    file_size_bytes = db.Column(db.BigInteger)
+    file_hash = db.Column(db.String(64))  # SHA256 hash for duplicate detection
+    upload_timestamp = db.Column(db.DateTime, default=datetime.now)
+    
+    # File processing information
+    processing_status = db.Column(db.String(50), default='pending')  # 'pending', 'processed', 'failed'
+    processing_started_at = db.Column(db.DateTime)
+    processing_completed_at = db.Column(db.DateTime)
+    processing_error = db.Column(db.Text)
+    
+    # Processing results
+    records_imported = db.Column(db.Integer, default=0)
+    records_skipped = db.Column(db.Integer, default=0)
+    chinapost_records = db.Column(db.Integer, default=0)
+    cbd_records = db.Column(db.Integer, default=0)
+    
+    # File storage paths (relative to backend/data/ directory)
+    stored_original_path = db.Column(db.String(500))  # Path to stored original file
+    stored_chinapost_path = db.Column(db.String(500))  # Path to generated CHINAPOST export
+    stored_cbd_path = db.Column(db.String(500))  # Path to generated CBD export
+    
+    # User and context information
+    uploaded_by = db.Column(db.String(100), default='system')
+    upload_notes = db.Column(db.Text)
+    
+    def to_dict(self):
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'created_at': self.created_at.isoformat() if self.created_at else '',
+            'original_filename': self.original_filename,
+            'file_size_bytes': self.file_size_bytes,
+            'file_size_mb': round(self.file_size_bytes / (1024*1024), 2) if self.file_size_bytes else 0,
+            'upload_timestamp': self.upload_timestamp.isoformat() if self.upload_timestamp else '',
+            'processing_status': self.processing_status,
+            'processing_started_at': self.processing_started_at.isoformat() if self.processing_started_at else '',
+            'processing_completed_at': self.processing_completed_at.isoformat() if self.processing_completed_at else '',
+            'processing_error': self.processing_error,
+            'processing_duration_seconds': self._calculate_processing_duration(),
+            'records_imported': self.records_imported,
+            'records_skipped': self.records_skipped,
+            'chinapost_records': self.chinapost_records,
+            'cbd_records': self.cbd_records,
+            'has_original_file': bool(self.stored_original_path),
+            'has_chinapost_export': bool(self.stored_chinapost_path),
+            'has_cbd_export': bool(self.stored_cbd_path),
+            'uploaded_by': self.uploaded_by,
+            'upload_notes': self.upload_notes or ''
+        }
+    
+    def _calculate_processing_duration(self):
+        """Calculate processing duration in seconds"""
+        if self.processing_started_at and self.processing_completed_at:
+            duration = self.processing_completed_at - self.processing_started_at
+            return round(duration.total_seconds(), 2)
+        return None
+    
+    @classmethod
+    def create_from_upload(cls, filename, file_size, file_hash, upload_notes=None):
+        """Create a new file upload history record"""
+        upload_record = cls()
+        upload_record.original_filename = filename
+        upload_record.file_size_bytes = file_size
+        upload_record.file_hash = file_hash
+        upload_record.upload_notes = upload_notes
+        upload_record.processing_status = 'pending'
+        
+        db.session.add(upload_record)
+        db.session.commit()
+        return upload_record
+    
+    def mark_processing_started(self):
+        """Mark processing as started"""
+        self.processing_status = 'processing'
+        self.processing_started_at = datetime.now()
+        db.session.commit()
+    
+    def mark_processing_completed(self, records_imported=0, records_skipped=0, 
+                                 chinapost_records=0, cbd_records=0):
+        """Mark processing as completed successfully"""
+        self.processing_status = 'processed'
+        self.processing_completed_at = datetime.now()
+        self.records_imported = records_imported
+        self.records_skipped = records_skipped
+        self.chinapost_records = chinapost_records
+        self.cbd_records = cbd_records
+        db.session.commit()
+    
+    def mark_processing_failed(self, error_message):
+        """Mark processing as failed"""
+        self.processing_status = 'failed'
+        self.processing_completed_at = datetime.now()
+        self.processing_error = error_message
+        db.session.commit()
+    
+    def set_file_paths(self, original_path=None, chinapost_path=None, cbd_path=None):
+        """Set the file storage paths"""
+        if original_path:
+            self.stored_original_path = original_path
+        if chinapost_path:
+            self.stored_chinapost_path = chinapost_path
+        if cbd_path:
+            self.stored_cbd_path = cbd_path
+        db.session.commit()
+
+
 class SystemConfig(db.Model):
     """Model for storing system configuration settings"""
     __tablename__ = 'system_config'

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Upload, Clock, Calculator, Menu, X, Settings } from 'lucide-react';
+import { Mail, Upload, Clock, Calculator, Menu, X, Settings, Archive } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface LayoutProps {
@@ -13,6 +13,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigation = [
     { name: 'Data Processing', path: '/', icon: Upload },
     { name: 'Historical Data', path: '/historical-data', icon: Clock },
+    { name: 'File History', path: '/file-history', icon: Archive },
     { name: 'Tariff Management', path: '/tariff-management', icon: Calculator },
     { name: 'Classification', path: '/classification-management', icon: Settings },
   ];

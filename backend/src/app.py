@@ -1,5 +1,7 @@
 import os
 import sys
+import hashlib
+import shutil
 
 # Add the src directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -10,7 +12,7 @@ from flask_migrate import Migrate
 import pandas as pd
 import io
 from datetime import datetime, date
-from models.database import db, ProcessedShipment, TariffRate, SystemConfig
+from models.database import db, ProcessedShipment, TariffRate, SystemConfig, FileUploadHistory
 from config.settings import Config
 from sqlalchemy import func, and_, or_
 from services.data_processor import DataProcessor
@@ -147,8 +149,10 @@ def health_check():
 
 @app.route('/upload-cnp-file', methods=['POST'])
 def upload_cnp_file():
-    """Upload and process raw CNP Excel file using the correct workflow"""
+    """Upload and process raw CNP Excel file with file history tracking"""
     temp_path = None
+    upload_record = None
+    
     try:
         # Check if file was uploaded
         if 'file' not in request.files:
@@ -162,16 +166,60 @@ def upload_cnp_file():
         if not file.filename or not file.filename.lower().endswith(('.xlsx', '.xls')):
             return jsonify({"error": "Invalid file format. Please upload an Excel file."}), 400
         
-        # Save uploaded file temporarily
-        temp_path = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-        file.save(temp_path)
+        # Create file history directory if it doesn't exist
+        history_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'file_history')
+        os.makedirs(history_dir, exist_ok=True)
+        
+        # Read file content for hashing and size calculation
+        file_content = file.read()
+        file_size = len(file_content)
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        
+        # Reset file position after reading for content
+        file.seek(0)
+        
+        # Check for duplicate files
+        existing_file = FileUploadHistory.query.filter_by(file_hash=file_hash).first()
+        if existing_file:
+            return jsonify({
+                "error": "This file has already been uploaded",
+                "existing_upload": existing_file.to_dict()
+            }), 400
+        
+        # Create file upload history record
+        upload_record = FileUploadHistory.create_from_upload(
+            filename=file.filename,
+            file_size=file_size,
+            file_hash=file_hash,
+            upload_notes=request.form.get('notes', '')
+        )
+        
+        # Create storage paths
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        original_filename = f"{timestamp}_{upload_record.id}_{file.filename}"
+        original_path = os.path.join(history_dir, original_filename)
+        
+        # Save original file
+        with open(original_path, 'wb') as f:
+            f.write(file_content)
+        
+        upload_record.set_file_paths(original_path=f"file_history/{original_filename}")
+        upload_record.mark_processing_started()
         
         try:
+            # Save uploaded file temporarily for processing
+            temp_path = f"temp_{timestamp}_{file.filename}"
+            with open(temp_path, 'wb') as f:
+                f.write(file_content)
+            
             # Read the raw CNP data from the first sheet (header=None for custom parsing)
             cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
             
             # Check if IODA file exists before processing
             if not os.path.exists(IODA_DATA_FILE):
+                upload_record.mark_processing_failed(
+                    f"IODA data file not found at {IODA_DATA_FILE}. Please ensure the master IODA data file is available."
+                )
                 return jsonify({
                     "error": f"IODA data file not found at {IODA_DATA_FILE}. Please ensure the master IODA data file is available.",
                     "details": "The IODA (master_cardit_inner_event_df) file is required for data processing but cannot be found."
@@ -184,6 +232,27 @@ def upload_cnp_file():
             chinapost_df, cbd_df = processor.process_cnp_data(cnp_df)
             
             if chinapost_df is not None and not chinapost_df.empty:
+                # Save export files to file history
+                chinapost_filename = f"{timestamp}_{upload_record.id}_CHINAPOST_export.xlsx"
+                cbd_filename = f"{timestamp}_{upload_record.id}_CBD_export.xlsx"
+                
+                chinapost_path = os.path.join(history_dir, chinapost_filename)
+                cbd_path = os.path.join(history_dir, cbd_filename)
+                
+                # Save CHINAPOST export
+                with pd.ExcelWriter(chinapost_path, engine='openpyxl') as writer:
+                    chinapost_df.to_excel(writer, sheet_name='CHINAPOST Export', index=False)
+                
+                # Save CBD export
+                with pd.ExcelWriter(cbd_path, engine='openpyxl') as writer:
+                    cbd_df.to_excel(writer, sheet_name='CBD Export', index=False)
+                
+                # Update file paths in history record
+                upload_record.set_file_paths(
+                    chinapost_path=f"file_history/{chinapost_filename}",
+                    cbd_path=f"file_history/{cbd_filename}"
+                )
+                
                 # Save processed data to database
                 new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
                 db.session.commit()
@@ -197,13 +266,23 @@ def upload_cnp_file():
                     configured_count = method_counts.get('configured', 0)
                     fallback_count = method_counts.get('fallback', 0)
                 
+                # Mark processing as completed
+                upload_record.mark_processing_completed(
+                    records_imported=new_entries,
+                    records_skipped=skipped_entries,
+                    chinapost_records=len(chinapost_df),
+                    cbd_records=len(cbd_df)
+                )
+                
             else:
                 new_entries, skipped_entries = 0, 0
                 configured_count, fallback_count = 0, 0
+                upload_record.mark_processing_completed(0, 0, 0, 0)
             
             return jsonify({
                 "success": True,
                 "message": "CNP file processed successfully using correct workflow",
+                "upload_id": upload_record.id,
                 "results": {
                     "chinapost_export": {
                         "available": True,
@@ -225,6 +304,12 @@ def upload_cnp_file():
                 }
             })
             
+        except Exception as processing_error:
+            # Mark processing as failed
+            if upload_record:
+                upload_record.mark_processing_failed(str(processing_error))
+            raise processing_error
+            
         finally:
             # Clean up temporary file
             if temp_path and os.path.exists(temp_path):
@@ -234,6 +319,11 @@ def upload_cnp_file():
         # Clean up temporary file in case of error
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+        
+        # Mark processing as failed if we have an upload record
+        if upload_record:
+            upload_record.mark_processing_failed(str(e))
+            
         return jsonify({"error": str(e)}), 500
 
 @app.route('/historical-data', methods=['POST'])
@@ -2406,6 +2496,226 @@ def create_bulk_tariff_rates():
         
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# ==================== FILE HISTORY ENDPOINTS ====================
+
+@app.route('/file-history', methods=['GET'])
+def get_file_history():
+    """Get all file upload history records"""
+    try:
+        # Get query parameters for filtering
+        status_filter = request.args.get('status')
+        limit = request.args.get('limit', 100, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        # Build query
+        query = FileUploadHistory.query
+        
+        if status_filter and status_filter != '':
+            query = query.filter(FileUploadHistory.processing_status == status_filter)
+        
+        # Order by most recent first
+        query = query.order_by(FileUploadHistory.upload_timestamp.desc())
+        
+        # Apply pagination
+        total_count = query.count()
+        files = query.offset(offset).limit(limit).all()
+        
+        return jsonify({
+            'success': True,
+            'files': [file.to_dict() for file in files],
+            'total': total_count,
+            'limit': limit,
+            'offset': offset
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/download-file/<int:file_id>/<file_type>', methods=['GET'])
+def download_file(file_id, file_type):
+    """Download a file from file history"""
+    try:
+        # Get the file history record
+        upload_record = FileUploadHistory.query.get(file_id)
+        if not upload_record:
+            return jsonify({'error': 'File record not found'}), 404
+        
+        # Determine which file to download
+        file_path = None
+        download_name = None
+        
+        if file_type == 'original':
+            file_path = upload_record.stored_original_path
+            download_name = upload_record.original_filename
+        elif file_type == 'chinapost':
+            file_path = upload_record.stored_chinapost_path
+            download_name = f"CHINAPOST_export_{upload_record.id}.xlsx"
+        elif file_type == 'cbd':
+            file_path = upload_record.stored_cbd_path
+            download_name = f"CBD_export_{upload_record.id}.xlsx"
+        else:
+            return jsonify({'error': 'Invalid file type. Must be "original", "chinapost", or "cbd"'}), 400
+        
+        if not file_path:
+            return jsonify({'error': f'{file_type.title()} file not available for this upload'}), 404
+        
+        # Build full path
+        full_path = os.path.join(os.path.dirname(__file__), '..', 'data', file_path)
+        
+        if not os.path.exists(full_path):
+            return jsonify({'error': f'{file_type.title()} file not found on disk'}), 404
+        
+        return send_file(
+            full_path,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/file-history/<int:file_id>', methods=['DELETE'])
+def delete_file_history(file_id):
+    """Delete a file history record and its associated files"""
+    try:
+        # Get the file history record
+        upload_record = FileUploadHistory.query.get(file_id)
+        if not upload_record:
+            return jsonify({'error': 'File record not found'}), 404
+        
+        # Delete associated files from disk
+        data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+        files_to_delete = [
+            upload_record.stored_original_path,
+            upload_record.stored_chinapost_path,
+            upload_record.stored_cbd_path
+        ]
+        
+        deleted_files = []
+        for file_path in files_to_delete:
+            if file_path:
+                full_path = os.path.join(data_dir, file_path)
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                        deleted_files.append(file_path)
+                    except Exception as e:
+                        print(f"Warning: Could not delete file {full_path}: {e}")
+        
+        # Delete the database record
+        db.session.delete(upload_record)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'File history record deleted successfully',
+            'deleted_files': deleted_files
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/file-history/<int:file_id>/reprocess', methods=['POST'])
+def reprocess_file(file_id):
+    """Reprocess a previously uploaded file"""
+    try:
+        # Get the file history record
+        upload_record = FileUploadHistory.query.get(file_id)
+        if not upload_record:
+            return jsonify({'error': 'File record not found'}), 404
+        
+        if not upload_record.stored_original_path:
+            return jsonify({'error': 'Original file not available for reprocessing'}), 404
+        
+        # Build full path to original file
+        original_file_path = os.path.join(
+            os.path.dirname(__file__), '..', 'data', upload_record.stored_original_path
+        )
+        
+        if not os.path.exists(original_file_path):
+            return jsonify({'error': 'Original file not found on disk'}), 404
+        
+        # Mark as processing started
+        upload_record.mark_processing_started()
+        
+        try:
+            # Read the original file
+            cnp_df = pd.read_excel(original_file_path, sheet_name='Raw data provided by CNP', header=None)
+            
+            # Check if IODA file exists
+            if not os.path.exists(IODA_DATA_FILE):
+                upload_record.mark_processing_failed("IODA data file not found")
+                return jsonify({'error': 'IODA data file not found'}), 500
+            
+            # Initialize data processor
+            processor = DataProcessor(IODA_DATA_FILE)
+            
+            # Process the data
+            chinapost_df, cbd_df = processor.process_cnp_data(cnp_df)
+            
+            if chinapost_df is not None and not chinapost_df.empty:
+                # Update export files
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                history_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'file_history')
+                
+                chinapost_filename = f"{timestamp}_{upload_record.id}_CHINAPOST_export_reprocessed.xlsx"
+                cbd_filename = f"{timestamp}_{upload_record.id}_CBD_export_reprocessed.xlsx"
+                
+                chinapost_path = os.path.join(history_dir, chinapost_filename)
+                cbd_path = os.path.join(history_dir, cbd_filename)
+                
+                # Save new export files
+                with pd.ExcelWriter(chinapost_path, engine='openpyxl') as writer:
+                    chinapost_df.to_excel(writer, sheet_name='CHINAPOST Export', index=False)
+                
+                with pd.ExcelWriter(cbd_path, engine='openpyxl') as writer:
+                    cbd_df.to_excel(writer, sheet_name='CBD Export', index=False)
+                
+                # Update file paths
+                upload_record.set_file_paths(
+                    chinapost_path=f"file_history/{chinapost_filename}",
+                    cbd_path=f"file_history/{cbd_filename}"
+                )
+                
+                # Save to database (this will create new records or update existing ones)
+                new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
+                db.session.commit()
+                
+                # Mark as completed
+                upload_record.mark_processing_completed(
+                    records_imported=new_entries,
+                    records_skipped=skipped_entries,
+                    chinapost_records=len(chinapost_df),
+                    cbd_records=len(cbd_df)
+                )
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'File reprocessed successfully',
+                    'results': {
+                        'new_entries': new_entries,
+                        'skipped_entries': skipped_entries,
+                        'chinapost_records': len(chinapost_df),
+                        'cbd_records': len(cbd_df)
+                    }
+                })
+            else:
+                upload_record.mark_processing_completed(0, 0, 0, 0)
+                return jsonify({
+                    'success': True,
+                    'message': 'File reprocessed but no data was generated',
+                    'results': {'new_entries': 0, 'skipped_entries': 0, 'chinapost_records': 0, 'cbd_records': 0}
+                })
+                
+        except Exception as processing_error:
+            upload_record.mark_processing_failed(str(processing_error))
+            raise processing_error
+            
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

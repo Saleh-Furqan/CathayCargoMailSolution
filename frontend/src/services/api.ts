@@ -443,6 +443,42 @@ class ApiService {
     return response.json();
   }
 
+  // ==================== FILE HISTORY METHODS ====================
+  
+  async getFileHistory() {
+    const response = await fetch(`${API_BASE_URL}/file-history`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get file history');
+    }
+    
+    return response.json();
+  }
+
+  async downloadHistoryFile(fileId: number, fileType: 'original' | 'chinapost' | 'cbd'): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/download-file/${fileId}/${fileType}`);
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to download ${fileType} file`);
+    }
+    
+    return response.blob();
+  }
+
+  async deleteFileHistory(fileId: number) {
+    const response = await fetch(`${API_BASE_URL}/file-history/${fileId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete file history record');
+    }
+
+    return response.json();
+  }
+
   // Legacy methods - kept for backward compatibility but no longer send data
   async processData(_data: any[]): Promise<ProcessDataResponse> {
     // This method is now deprecated - all processing happens in backend
