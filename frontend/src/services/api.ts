@@ -39,6 +39,16 @@ class ApiService {
     return response.json();
   }
 
+  async getRecentUploadData() {
+    const response = await fetch(`${API_BASE_URL}/get-recent-upload-data`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch recent upload data');
+    }
+
+    return response.json();
+  }
+
   async getHistoricalData(startDate: string, endDate: string, filters?: {
     goodsCategory?: string;
     postalService?: string;

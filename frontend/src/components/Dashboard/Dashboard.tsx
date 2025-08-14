@@ -59,30 +59,49 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, changeType, i
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ data, analyticsData, processResult }) => {
-  // Use backend-provided analytics data, with fallback if not available
+const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
+  // Fetch analytics from most recent upload only
+  const [recentAnalytics, setRecentAnalytics] = React.useState<any>(null);
+  
+  React.useEffect(() => {
+    const fetchRecentAnalytics = async () => {
+      try {
+        // Get analytics for the most recent upload only (no date filtering)
+        const analytics = await fetch('http://localhost:5001/get-analytics-data').then(res => res.json());
+        setRecentAnalytics(analytics);
+      } catch (error) {
+        console.error('Error fetching recent analytics:', error);
+      }
+    };
+
+    if (data.length > 0) {
+      fetchRecentAnalytics();
+    }
+  }, [data]);
+
+  // Use backend-provided analytics data from most recent upload, with fallback if not available
   const analytics = React.useMemo(() => {
     if (!data.length) return null;
 
-    // If backend analytics available, use it
-    if (analyticsData && analyticsData.analytics) {
+    // If backend analytics from most recent upload available, use it
+    if (recentAnalytics && recentAnalytics.analytics) {
       return {
-        totalShipments: analyticsData.analytics?.total_shipments || 0,
-        totalWeight: analyticsData.analytics?.total_weight || 0,
-        totalDeclaredValue: isNaN(analyticsData.analytics?.total_declared_value) ? 0 : (analyticsData.analytics?.total_declared_value || 0),
-        totalTariff: isNaN(analyticsData.analytics?.total_tariff) ? 0 : (analyticsData.analytics?.total_tariff || 0),
-        uniqueDestinations: analyticsData.analytics?.unique_destinations || 0,
-        uniqueCarriers: analyticsData.analytics?.unique_carriers || 0,
-        uniqueReceptacles: analyticsData.analytics?.unique_receptacles || 0,
-        destinationData: (analyticsData.breakdown?.by_destination || []).map((item: any) => ({
+        totalShipments: recentAnalytics.analytics?.total_shipments || 0,
+        totalWeight: recentAnalytics.analytics?.total_weight || 0,
+        totalDeclaredValue: isNaN(recentAnalytics.analytics?.total_declared_value) ? 0 : (recentAnalytics.analytics?.total_declared_value || 0),
+        totalTariff: isNaN(recentAnalytics.analytics?.total_tariff) ? 0 : (recentAnalytics.analytics?.total_tariff || 0),
+        uniqueDestinations: recentAnalytics.analytics?.unique_destinations || 0,
+        uniqueCarriers: recentAnalytics.analytics?.unique_carriers || 0,
+        uniqueReceptacles: recentAnalytics.analytics?.unique_receptacles || 0,
+        destinationData: (recentAnalytics.breakdown?.by_destination || []).map((item: any) => ({
           ...item,
           value: isNaN(item.value) ? 0 : item.value
         })),
-        carrierData: (analyticsData.breakdown?.by_carrier || []).map((item: any) => ({
+        carrierData: (recentAnalytics.breakdown?.by_carrier || []).map((item: any) => ({
           ...item,
           value: isNaN(item.value) ? 0 : item.value
         })),
-        currencyData: analyticsData.breakdown?.by_currency || [],
+        currencyData: recentAnalytics.breakdown?.by_currency || [],
       };
     }
 
@@ -100,7 +119,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, analyticsData, processResul
       carrierData: [],
       currencyData: [],
     };
-  }, [analyticsData, data]);
+  }, [recentAnalytics, data]);
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 

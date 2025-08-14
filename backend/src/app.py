@@ -44,7 +44,7 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 IODA_DATA_FILE = os.path.join(PROJECT_ROOT, "sample-data", "ioda", "master_cardit_inner_event_df(IODA DATA).xlsx")
 
-def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataFrame) -> tuple:
+def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataFrame, upload_id=None) -> tuple:
     """Save CHINAPOST export data to database with CBD export fields"""
     new_entries = 0
     skipped_entries = 0
@@ -83,6 +83,9 @@ def save_chinapost_data_to_database(chinapost_df: pd.DataFrame, cbd_df: pd.DataF
         
         # Create new processed shipment entry
         entry = ProcessedShipment()
+        
+        # Associate with upload record
+        entry.file_upload_id = upload_id
         
         # Core identification
         entry.sequence_number = str(row.get('', ''))
@@ -246,7 +249,7 @@ def upload_cnp_file():
                 )
                 
                 # Save processed data to database
-                new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
+                new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df, upload_record.id)
                 db.session.commit()
                 print(f"Saved to database: {new_entries} new entries, {skipped_entries} duplicates skipped")
                 
@@ -318,6 +321,49 @@ def upload_cnp_file():
             
         return jsonify({"error": str(e)}), 500
 
+@app.route('/get-recent-upload-data', methods=['GET'])
+def get_recent_upload_data():
+    """Get data from the most recent file upload only"""
+    try:
+        # Get the most recent upload ID
+        most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
+        
+        if not most_recent_upload_id:
+            return jsonify({
+                'data': [],
+                'total_records': 0,
+                'message': 'No processed files found'
+            })
+        
+        # Get all records from the most recent upload
+        entries = ProcessedShipment.query.filter(
+            ProcessedShipment.file_upload_id == most_recent_upload_id
+        ).all()
+        
+        # Return cleaned database data
+        results = []
+        for entry in entries:
+            record_dict = entry.to_dict()
+            
+            # Clean up common fields that may contain invalid values
+            for field in ['declared_value', 'tariff_amount', 'bag_weight', 'currency']:
+                if field in record_dict and record_dict[field]:
+                    val_str = str(record_dict[field]).lower().strip()
+                    if val_str in ['nan', 'null', 'none', 'n/a', 'na']:
+                        record_dict[field] = ''
+            
+            results.append(record_dict)
+
+        return jsonify({
+            'data': results,
+            'total_records': len(results),
+            'upload_id': most_recent_upload_id,
+            'message': f'Data from most recent upload (ID: {most_recent_upload_id})'
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/historical-data', methods=['POST'])
 def get_historical_data():
     """Get historical processed shipment data with enhanced filtering - NO FRONTEND PROCESSING"""
@@ -365,7 +411,14 @@ def get_historical_data():
 
 def build_filtered_shipment_query(filters=None):
     """Helper function to build filtered shipment query with same logic as historical-data endpoint"""
-    query = ProcessedShipment.query
+    # Start with base query filtering by most recent upload only
+    most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
+    
+    if most_recent_upload_id:
+        query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
+    else:
+        # Fallback to all data if no upload found
+        query = ProcessedShipment.query
     
     if not filters:
         return query
@@ -487,12 +540,13 @@ def generate_cbd():
 
 @app.route('/get-analytics-data', methods=['GET', 'POST'])
 def get_analytics_data():
-    """Get analytics data for dashboard with enhanced filtering - BACKEND PROCESSED ONLY"""
+    """Get analytics data for dashboard from most recent upload only - BACKEND PROCESSED ONLY"""
     try:
-        # Get query parameters for date filtering
-        if request.method == 'POST':
-            data = request.json or {}
-            query = build_filtered_shipment_query(data)
+        # Always use data from most recent upload, ignore date filters for this endpoint
+        most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
+        
+        if most_recent_upload_id:
+            query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
         else:
             query = ProcessedShipment.query
         
@@ -1379,25 +1433,15 @@ def test_enhanced_filters():
 
 @app.route('/cbp-analytics', methods=['GET', 'POST'])
 def get_cbp_analytics():
-    """Get CBP-specific analytics - BACKEND PROCESSED ONLY"""
+    """Get CBP-specific analytics from most recent upload only - BACKEND PROCESSED ONLY"""
     try:
-        # Get query parameters for date filtering (same logic as get_analytics_data)
-        query = ProcessedShipment.query
+        # Always use data from most recent upload only
+        most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
         
-        if request.method == 'POST':
-            data = request.json or {} or {}
-            start_date = data.get('startDate')
-            end_date = data.get('endDate')
-            
-            if start_date and end_date:
-                query = query.filter(
-                    and_(
-                        ProcessedShipment.arrival_date.isnot(None),
-                        ProcessedShipment.arrival_date != '',
-                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
-                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
-                    )
-                )
+        if most_recent_upload_id:
+            query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
+        else:
+            query = ProcessedShipment.query
         
         entries = query.all()
         
@@ -1445,25 +1489,15 @@ def get_cbp_analytics():
 
 @app.route('/chinapost-analytics', methods=['GET', 'POST'])
 def get_chinapost_analytics():
-    """Get China Post-specific analytics - BACKEND PROCESSED ONLY"""
+    """Get China Post-specific analytics from most recent upload only - BACKEND PROCESSED ONLY"""
     try:
-        # Get query parameters for date filtering (same logic as get_analytics_data)
-        query = ProcessedShipment.query
+        # Always use data from most recent upload only
+        most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
         
-        if request.method == 'POST':
-            data = request.json or {} or {}
-            start_date = data.get('startDate')
-            end_date = data.get('endDate')
-            
-            if start_date and end_date:
-                query = query.filter(
-                    and_(
-                        ProcessedShipment.arrival_date.isnot(None),
-                        ProcessedShipment.arrival_date != '',
-                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) >= start_date,
-                        func.date(func.substr(ProcessedShipment.arrival_date, 1, 10)) <= end_date
-                    )
-                )
+        if most_recent_upload_id:
+            query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
+        else:
+            query = ProcessedShipment.query
         
         entries = query.all()
         
@@ -2656,7 +2690,7 @@ def reprocess_file(file_id):
                 )
                 
                 # Save to database (this will create new records or update existing ones)
-                new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df)
+                new_entries, skipped_entries = save_chinapost_data_to_database(chinapost_df, cbd_df, upload_record.id)
                 db.session.commit()
                 
                 # Mark as completed

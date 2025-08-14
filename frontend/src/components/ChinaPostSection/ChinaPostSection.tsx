@@ -69,10 +69,11 @@ const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, i
     return matchesSearch && matchesAirline && matchesDestination;
   });
 
-  // Fetch analytics from backend - NO FRONTEND CALCULATIONS
+  // Fetch analytics from backend for most recent upload only - NO FRONTEND CALCULATIONS
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
+        // Get analytics for the most recent upload only (no date filtering)
         const analyticsData = await apiService.getChinaPostAnalytics();
         setAnalytics(analyticsData);
       } catch (error) {

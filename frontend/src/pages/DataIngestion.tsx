@@ -51,47 +51,77 @@ const DataIngestion: React.FC = () => {
 
   const fetchProcessedData = async () => {
     try {
-      console.log('fetchProcessedData: Starting to fetch data...');
-      // Get recent data from the last 7 days to populate the dashboard
-      const endDate = new Date().toISOString().split('T')[0];
-      const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      console.log('fetchProcessedData: Starting to fetch most recent upload data...');
       
-      console.log('fetchProcessedData: Date range:', startDate, 'to', endDate);
-      
-      const response = await apiService.getHistoricalData(startDate, endDate);
+      // Get data from the most recent upload only (not session-based)
+      const response = await apiService.getRecentUploadData();
       console.log('fetchProcessedData: Response received:', response);
       console.log('fetchProcessedData: Response data length:', response.data?.length || 0);
+      console.log('fetchProcessedData: Upload ID:', response.upload_id);
       
-      // Format data for the dashboard
+      // Format data for the dashboard (already in correct format from backend)
       const formattedData = response.data.map((item: any) => ({
         id: item.id,
-        '*运单号 (AWB Number)': item.awb_number,
-        '*始发站（Departure station）': item.departure_station,
-        '*目的站（Destination）': item.destination,
-        '*件数(Pieces)': parseFloat(item.pieces || 0),
-        '*重量 (Weight)': parseFloat(item.weight || 0),
-        '航司(Airline)': item.airline,
-        '航班号 (Flight Number)': item.flight_number,
-        '航班日期 (Flight Date)': item.flight_date,
-        '一个航班的邮件item总数 (Total mail items per flight)': item.total_mail_items || '',
-        '一个航班的邮件总重量 (Total mail weight per flight)': item.total_mail_weight || '',
-        '*运价类型 (Rate Type)': item.rate_type,
-        '*费率 (Rate)': parseFloat(item.rate || 0),
-        '*航空运费 (Air Freight)': parseFloat(item.air_freight || 0),
-        "代理人的其他费用 (Agent's Other Charges)": item.agent_charges || '',
-        "承运人的其他费用 (Carrier's Other Charges)": item.carrier_charges || '',
-        '*总运费 (Total Charges)': parseFloat(item.total_charges || 0),
-        'Carrier Code': item.carrier_code || item.airline,
-        'Flight/ Trip Number': item.flight_number,
-        'Tracking Number': item.tracking_number || item.awb_number,
-        'Arrival Port Code': item.arrival_port_code || item.destination,
-        'Arrival Date': item.arrival_date || item.flight_date,
-        'Declared Value (USD)': item.declared_value_usd || parseFloat(item.total_charges || 0)
+        // Keep existing field mappings for compatibility
+        '*运单号 (AWB Number)': item.pawb,
+        '*始发站（Departure station）': item.host_origin_station,
+        '*目的站（Destination）': item.host_destination_station,
+        '*件数(Pieces)': parseFloat(item.number_of_packets || 0),
+        '*重量 (Weight)': parseFloat(item.bag_weight || 0),
+        '航司(Airline)': item.flight_carrier_1,
+        '航班号 (Flight Number)': item.flight_number_1,
+        '航班日期 (Flight Date)': item.flight_date_1,
+        '一个航班的邮件item总数 (Total mail items per flight)': item.number_of_packets || '',
+        '一个航班的邮件总重量 (Total mail weight per flight)': item.bag_weight || '',
+        '*运价类型 (Rate Type)': item.postal_service,
+        '*费率 (Rate)': parseFloat(item.tariff_rate_used || 0),
+        '*航空运费 (Air Freight)': parseFloat(item.tariff_amount || 0),
+        "代理人的其他费用 (Agent's Other Charges)": '',
+        "承运人的其他费用 (Carrier's Other Charges)": '',
+        '*总运费 (Total Charges)': parseFloat(item.tariff_amount || 0),
+        // Map to backend fields for components
+        sequence_number: item.sequence_number,
+        pawb: item.pawb,
+        cardit: item.cardit,
+        tracking_number: item.tracking_number,
+        receptacle_id: item.receptacle_id,
+        host_origin_station: item.host_origin_station,
+        host_destination_station: item.host_destination_station,
+        flight_carrier_1: item.flight_carrier_1,
+        flight_number_1: item.flight_number_1,
+        flight_date_1: item.flight_date_1,
+        flight_carrier_2: item.flight_carrier_2,
+        flight_number_2: item.flight_number_2,
+        flight_date_2: item.flight_date_2,
+        flight_carrier_3: item.flight_carrier_3,
+        flight_number_3: item.flight_number_3,
+        flight_date_3: item.flight_date_3,
+        arrival_date: item.arrival_date,
+        arrival_date_formatted: item.arrival_date_formatted,
+        arrival_uld_number: item.arrival_uld_number,
+        bag_weight: item.bag_weight,
+        bag_number: item.bag_number,
+        declared_content: item.declared_content,
+        hs_code: item.hs_code,
+        declared_value: item.declared_value,
+        declared_value_usd: item.declared_value_usd,
+        currency: item.currency,
+        number_of_packets: item.number_of_packets,
+        tariff_amount: item.tariff_amount,
+        goods_category: item.goods_category,
+        postal_service: item.postal_service,
+        shipment_date: item.shipment_date,
+        tariff_rate_used: item.tariff_rate_used,
+        tariff_calculation_method: item.tariff_calculation_method,
+        carrier_code: item.carrier_code,
+        flight_trip_number: item.flight_trip_number,
+        arrival_port_code: item.arrival_port_code,
+        file_upload_id: item.file_upload_id
       }));
 
       console.log('fetchProcessedData: Formatted data length:', formattedData.length);
       setProcessedData(formattedData);
-      console.log('fetchProcessedData: Data set in state successfully');
+      console.log('fetchProcessedData: Data set in state successfully (from most recent upload)');
       
     } catch (error) {
       console.error('fetchProcessedData: Error fetching processed data:', error);

@@ -287,6 +287,9 @@ class ProcessedShipment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
     
+    # Add foreign key to track which file upload this record belongs to
+    file_upload_id = db.Column(db.Integer, db.ForeignKey('file_upload_history.id'), nullable=True)
+    
     # Core identification fields (from CHINAPOST export structure)
     sequence_number = db.Column(db.String(10))  # The unnamed first column (1, 2, 3...)
     pawb = db.Column(db.String(100))  # PAWB
@@ -356,6 +359,7 @@ class ProcessedShipment(db.Model):
         return {
             'id': self.id,
             'created_at': self.created_at.isoformat() if self.created_at else '',
+            'file_upload_id': self.file_upload_id,
             
             # Core identification
             'sequence_number': self._clean_value(self.sequence_number),
@@ -568,6 +572,12 @@ class FileUploadHistory(db.Model):
         if cbd_data is not None:
             self.cbd_file_data = cbd_data
         db.session.commit()
+    
+    @classmethod
+    def get_most_recent_upload_id(cls):
+        """Get the ID of the most recent successful file upload"""
+        most_recent = cls.query.filter_by(processing_status='processed').order_by(cls.upload_timestamp.desc()).first()
+        return most_recent.id if most_recent else None
     
     def get_file_data(self, file_type):
         """Get binary data for a specific file type"""

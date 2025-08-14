@@ -39,10 +39,11 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
     content: item.declared_content || '',
   }));
 
-  // Fetch analytics from backend - NO FRONTEND CALCULATIONS
+  // Fetch analytics from backend for most recent upload only - NO FRONTEND CALCULATIONS
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
+        // Get analytics for the most recent upload only (no date filtering)
         const analyticsData = await apiService.getCBPAnalytics();
         setAnalytics(analyticsData);
       } catch (error) {
