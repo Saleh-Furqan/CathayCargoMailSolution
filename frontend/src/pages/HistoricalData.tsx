@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { downloadBlob } from '../services/api';
+import Tooltip from '../components/Tooltip';
 import Dashboard from '../components/Dashboard/Dashboard';
 import CBPSection from '../components/CBPSection/CBPSection';
 import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
@@ -654,7 +655,12 @@ const HistoricalData: React.FC = () => {
                             <div className="text-sm font-medium text-green-600">
                               {record['Declared Value'] || 'N/A'} {record['Currency'] || ''}
                             </div>
-                            <div className="text-xs text-gray-500">HS: {record['HS Code'] || 'N/A'}</div>
+                            <Tooltip 
+                              text={record['HS Code'] || ''} 
+                              maxLength={15} 
+                              className="text-xs text-gray-500" 
+                              prefix="HS: " 
+                            />
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-green-600">

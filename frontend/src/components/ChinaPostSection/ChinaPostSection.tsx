@@ -9,6 +9,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { apiService } from '../../services/api';
+import Tooltip from '../Tooltip';
 
 interface ChinaPostSectionProps {
   data: any[];
@@ -403,7 +404,12 @@ const ChinaPostSection: React.FC<ChinaPostSectionProps> = ({ data, onDownload, i
                           ) : 'N/A'
                         }
                       </div>
-                      <div className="text-sm text-gray-500">HS: {item.hsCode || 'N/A'}</div>
+                      <Tooltip 
+                        text={item.hsCode || ''} 
+                        maxLength={15} 
+                        className="text-sm text-gray-500" 
+                        prefix="HS: " 
+                      />
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
