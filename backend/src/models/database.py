@@ -475,10 +475,15 @@ class FileUploadHistory(db.Model):
     chinapost_records = db.Column(db.Integer, default=0)
     cbd_records = db.Column(db.Integer, default=0)
     
-    # File storage paths (relative to backend/data/ directory)
-    stored_original_path = db.Column(db.String(500))  # Path to stored original file
-    stored_chinapost_path = db.Column(db.String(500))  # Path to generated CHINAPOST export
-    stored_cbd_path = db.Column(db.String(500))  # Path to generated CBD export
+    # File storage as binary data (BLOB)
+    original_file_data = db.Column(db.LargeBinary)  # Original uploaded file
+    chinapost_file_data = db.Column(db.LargeBinary)  # Generated CHINAPOST export
+    cbd_file_data = db.Column(db.LargeBinary)  # Generated CBD export
+    
+    # MIME types for proper file serving
+    original_mime_type = db.Column(db.String(100), default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    chinapost_mime_type = db.Column(db.String(100), default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    cbd_mime_type = db.Column(db.String(100), default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     
     # User and context information
     uploaded_by = db.Column(db.String(100), default='system')
@@ -502,9 +507,9 @@ class FileUploadHistory(db.Model):
             'records_skipped': self.records_skipped,
             'chinapost_records': self.chinapost_records,
             'cbd_records': self.cbd_records,
-            'has_original_file': bool(self.stored_original_path),
-            'has_chinapost_export': bool(self.stored_chinapost_path),
-            'has_cbd_export': bool(self.stored_cbd_path),
+            'has_original_file': bool(self.original_file_data),
+            'has_chinapost_export': bool(self.chinapost_file_data),
+            'has_cbd_export': bool(self.cbd_file_data),
             'uploaded_by': self.uploaded_by,
             'upload_notes': self.upload_notes or ''
         }
@@ -554,15 +559,37 @@ class FileUploadHistory(db.Model):
         self.processing_error = error_message
         db.session.commit()
     
-    def set_file_paths(self, original_path=None, chinapost_path=None, cbd_path=None):
-        """Set the file storage paths"""
-        if original_path:
-            self.stored_original_path = original_path
-        if chinapost_path:
-            self.stored_chinapost_path = chinapost_path
-        if cbd_path:
-            self.stored_cbd_path = cbd_path
+    def set_file_data(self, original_data=None, chinapost_data=None, cbd_data=None):
+        """Set the file binary data"""
+        if original_data is not None:
+            self.original_file_data = original_data
+        if chinapost_data is not None:
+            self.chinapost_file_data = chinapost_data
+        if cbd_data is not None:
+            self.cbd_file_data = cbd_data
         db.session.commit()
+    
+    def get_file_data(self, file_type):
+        """Get binary data for a specific file type"""
+        if file_type == 'original':
+            return self.original_file_data
+        elif file_type == 'chinapost':
+            return self.chinapost_file_data
+        elif file_type == 'cbd':
+            return self.cbd_file_data
+        else:
+            return None
+    
+    def get_mime_type(self, file_type):
+        """Get MIME type for a specific file type"""
+        if file_type == 'original':
+            return self.original_mime_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        elif file_type == 'chinapost':
+            return self.chinapost_mime_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        elif file_type == 'cbd':
+            return self.cbd_mime_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        else:
+            return 'application/octet-stream'
 
 
 class SystemConfig(db.Model):

@@ -194,20 +194,13 @@ def upload_cnp_file():
             upload_notes=request.form.get('notes', '')
         )
         
-        # Create storage paths
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        original_filename = f"{timestamp}_{upload_record.id}_{file.filename}"
-        original_path = os.path.join(history_dir, original_filename)
-        
-        # Save original file
-        with open(original_path, 'wb') as f:
-            f.write(file_content)
-        
-        upload_record.set_file_paths(original_path=f"file_history/{original_filename}")
+        # Store original file data as binary
+        upload_record.set_file_data(original_data=file_content)
         upload_record.mark_processing_started()
         
         try:
             # Save uploaded file temporarily for processing
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             temp_path = f"temp_{timestamp}_{file.filename}"
             with open(temp_path, 'wb') as f:
                 f.write(file_content)
@@ -232,25 +225,24 @@ def upload_cnp_file():
             chinapost_df, cbd_df = processor.process_cnp_data(cnp_df)
             
             if chinapost_df is not None and not chinapost_df.empty:
-                # Save export files to file history
-                chinapost_filename = f"{timestamp}_{upload_record.id}_CHINAPOST_export.xlsx"
-                cbd_filename = f"{timestamp}_{upload_record.id}_CBD_export.xlsx"
+                # Generate export files as binary data
+                chinapost_buffer = io.BytesIO()
+                cbd_buffer = io.BytesIO()
                 
-                chinapost_path = os.path.join(history_dir, chinapost_filename)
-                cbd_path = os.path.join(history_dir, cbd_filename)
-                
-                # Save CHINAPOST export
-                with pd.ExcelWriter(chinapost_path, engine='openpyxl') as writer:
+                # Save CHINAPOST export to buffer
+                with pd.ExcelWriter(chinapost_buffer, engine='openpyxl') as writer:
                     chinapost_df.to_excel(writer, sheet_name='CHINAPOST Export', index=False)
+                chinapost_buffer.seek(0)
                 
-                # Save CBD export
-                with pd.ExcelWriter(cbd_path, engine='openpyxl') as writer:
+                # Save CBD export to buffer
+                with pd.ExcelWriter(cbd_buffer, engine='openpyxl') as writer:
                     cbd_df.to_excel(writer, sheet_name='CBD Export', index=False)
+                cbd_buffer.seek(0)
                 
-                # Update file paths in history record
-                upload_record.set_file_paths(
-                    chinapost_path=f"file_history/{chinapost_filename}",
-                    cbd_path=f"file_history/{cbd_filename}"
+                # Store binary data in database
+                upload_record.set_file_data(
+                    chinapost_data=chinapost_buffer.getvalue(),
+                    cbd_data=cbd_buffer.getvalue()
                 )
                 
                 # Save processed data to database
@@ -2535,43 +2527,38 @@ def get_file_history():
 
 @app.route('/download-file/<int:file_id>/<file_type>', methods=['GET'])
 def download_file(file_id, file_type):
-    """Download a file from file history"""
+    """Download a file from file history (binary data from database)"""
     try:
         # Get the file history record
         upload_record = FileUploadHistory.query.get(file_id)
         if not upload_record:
             return jsonify({'error': 'File record not found'}), 404
         
-        # Determine which file to download
-        file_path = None
-        download_name = None
+        # Get binary data and determine filename
+        file_data = upload_record.get_file_data(file_type)
+        mime_type = upload_record.get_mime_type(file_type)
         
+        if file_data is None:
+            return jsonify({'error': f'{file_type.title()} file not available for this upload'}), 404
+        
+        # Determine download filename
         if file_type == 'original':
-            file_path = upload_record.stored_original_path
             download_name = upload_record.original_filename
         elif file_type == 'chinapost':
-            file_path = upload_record.stored_chinapost_path
             download_name = f"CHINAPOST_export_{upload_record.id}.xlsx"
         elif file_type == 'cbd':
-            file_path = upload_record.stored_cbd_path
             download_name = f"CBD_export_{upload_record.id}.xlsx"
         else:
             return jsonify({'error': 'Invalid file type. Must be "original", "chinapost", or "cbd"'}), 400
         
-        if not file_path:
-            return jsonify({'error': f'{file_type.title()} file not available for this upload'}), 404
-        
-        # Build full path
-        full_path = os.path.join(os.path.dirname(__file__), '..', 'data', file_path)
-        
-        if not os.path.exists(full_path):
-            return jsonify({'error': f'{file_type.title()} file not found on disk'}), 404
+        # Create in-memory file object
+        file_buffer = io.BytesIO(file_data)
         
         return send_file(
-            full_path,
+            file_buffer,
             as_attachment=True,
             download_name=download_name,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            mimetype=mime_type
         )
         
     except Exception as e:
@@ -2579,40 +2566,30 @@ def download_file(file_id, file_type):
 
 @app.route('/file-history/<int:file_id>', methods=['DELETE'])
 def delete_file_history(file_id):
-    """Delete a file history record and its associated files"""
+    """Delete a file history record (binary data stored in database)"""
     try:
         # Get the file history record
         upload_record = FileUploadHistory.query.get(file_id)
         if not upload_record:
             return jsonify({'error': 'File record not found'}), 404
         
-        # Delete associated files from disk
-        data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
-        files_to_delete = [
-            upload_record.stored_original_path,
-            upload_record.stored_chinapost_path,
-            upload_record.stored_cbd_path
-        ]
+        # Count files that will be deleted
+        files_deleted = []
+        if upload_record.original_file_data:
+            files_deleted.append('original')
+        if upload_record.chinapost_file_data:
+            files_deleted.append('chinapost')
+        if upload_record.cbd_file_data:
+            files_deleted.append('cbd')
         
-        deleted_files = []
-        for file_path in files_to_delete:
-            if file_path:
-                full_path = os.path.join(data_dir, file_path)
-                if os.path.exists(full_path):
-                    try:
-                        os.remove(full_path)
-                        deleted_files.append(file_path)
-                    except Exception as e:
-                        print(f"Warning: Could not delete file {full_path}: {e}")
-        
-        # Delete the database record
+        # Delete the database record (this automatically deletes the binary data)
         db.session.delete(upload_record)
         db.session.commit()
         
         return jsonify({
             'success': True,
             'message': 'File history record deleted successfully',
-            'deleted_files': deleted_files
+            'deleted_files': files_deleted
         })
         
     except Exception as e:
@@ -2621,30 +2598,30 @@ def delete_file_history(file_id):
 
 @app.route('/file-history/<int:file_id>/reprocess', methods=['POST'])
 def reprocess_file(file_id):
-    """Reprocess a previously uploaded file"""
+    """Reprocess a previously uploaded file from binary data"""
+    temp_path = None
     try:
         # Get the file history record
         upload_record = FileUploadHistory.query.get(file_id)
         if not upload_record:
             return jsonify({'error': 'File record not found'}), 404
         
-        if not upload_record.stored_original_path:
-            return jsonify({'error': 'Original file not available for reprocessing'}), 404
-        
-        # Build full path to original file
-        original_file_path = os.path.join(
-            os.path.dirname(__file__), '..', 'data', upload_record.stored_original_path
-        )
-        
-        if not os.path.exists(original_file_path):
-            return jsonify({'error': 'Original file not found on disk'}), 404
+        if not upload_record.original_file_data:
+            return jsonify({'error': 'Original file data not available for reprocessing'}), 404
         
         # Mark as processing started
         upload_record.mark_processing_started()
         
         try:
+            # Create temporary file from binary data for processing
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            temp_path = f"temp_reprocess_{timestamp}_{upload_record.id}.xlsx"
+            
+            with open(temp_path, 'wb') as f:
+                f.write(upload_record.original_file_data)
+            
             # Read the original file
-            cnp_df = pd.read_excel(original_file_path, sheet_name='Raw data provided by CNP', header=None)
+            cnp_df = pd.read_excel(temp_path, sheet_name='Raw data provided by CNP', header=None)
             
             # Check if IODA file exists
             if not os.path.exists(IODA_DATA_FILE):
@@ -2658,27 +2635,24 @@ def reprocess_file(file_id):
             chinapost_df, cbd_df = processor.process_cnp_data(cnp_df)
             
             if chinapost_df is not None and not chinapost_df.empty:
-                # Update export files
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                history_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'file_history')
+                # Generate new export files as binary data
+                chinapost_buffer = io.BytesIO()
+                cbd_buffer = io.BytesIO()
                 
-                chinapost_filename = f"{timestamp}_{upload_record.id}_CHINAPOST_export_reprocessed.xlsx"
-                cbd_filename = f"{timestamp}_{upload_record.id}_CBD_export_reprocessed.xlsx"
-                
-                chinapost_path = os.path.join(history_dir, chinapost_filename)
-                cbd_path = os.path.join(history_dir, cbd_filename)
-                
-                # Save new export files
-                with pd.ExcelWriter(chinapost_path, engine='openpyxl') as writer:
+                # Save CHINAPOST export to buffer
+                with pd.ExcelWriter(chinapost_buffer, engine='openpyxl') as writer:
                     chinapost_df.to_excel(writer, sheet_name='CHINAPOST Export', index=False)
+                chinapost_buffer.seek(0)
                 
-                with pd.ExcelWriter(cbd_path, engine='openpyxl') as writer:
+                # Save CBD export to buffer
+                with pd.ExcelWriter(cbd_buffer, engine='openpyxl') as writer:
                     cbd_df.to_excel(writer, sheet_name='CBD Export', index=False)
+                cbd_buffer.seek(0)
                 
-                # Update file paths
-                upload_record.set_file_paths(
-                    chinapost_path=f"file_history/{chinapost_filename}",
-                    cbd_path=f"file_history/{cbd_filename}"
+                # Update binary data in database
+                upload_record.set_file_data(
+                    chinapost_data=chinapost_buffer.getvalue(),
+                    cbd_data=cbd_buffer.getvalue()
                 )
                 
                 # Save to database (this will create new records or update existing ones)
@@ -2714,6 +2688,10 @@ def reprocess_file(file_id):
         except Exception as processing_error:
             upload_record.mark_processing_failed(str(processing_error))
             raise processing_error
+        finally:
+            # Clean up temporary file
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
