@@ -366,12 +366,12 @@ def get_recent_upload_data():
 
 @app.route('/historical-data', methods=['POST'])
 def get_historical_data():
-    """Get historical processed shipment data with enhanced filtering - NO FRONTEND PROCESSING"""
+    """Get historical processed shipment data with enhanced filtering - queries ENTIRE database"""
     try:
         data = request.json or {}
         
-        # Use the shared filtering function
-        query = build_filtered_shipment_query(data)
+        # Use the filtering function for historical data (queries entire database)
+        query = build_filtered_shipment_query(data, use_all_data=True)
         
         # Execute query and return RAW database records
         entries = query.all()
@@ -409,16 +409,20 @@ def get_historical_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def build_filtered_shipment_query(filters=None):
-    """Helper function to build filtered shipment query with same logic as historical-data endpoint"""
-    # Start with base query filtering by most recent upload only
-    most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
-    
-    if most_recent_upload_id:
-        query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
-    else:
-        # Fallback to all data if no upload found
+def build_filtered_shipment_query(filters=None, use_all_data=False):
+    """Helper function to build filtered shipment query with configurable data scope"""
+    if use_all_data:
+        # For Historical Data: Query entire database
         query = ProcessedShipment.query
+    else:
+        # For Data Processing (Analytics, CBP, China Post): Filter by most recent upload only
+        most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
+        
+        if most_recent_upload_id:
+            query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
+        else:
+            # Fallback to all data if no upload found
+            query = ProcessedShipment.query
     
     if not filters:
         return query
@@ -468,11 +472,16 @@ def build_filtered_shipment_query(filters=None):
 def generate_chinapost():
     """Generate CHINAPOST export file with optional filtering"""
     try:
-        # Get filters from request body (same as historical-data endpoint)
+        # Get filters from request body
         data = request.json or {}
         
+        # Check if date filters are provided (indicating Historical Data request)
+        start_date = data.get('startDate')
+        end_date = data.get('endDate')
+        use_all_data = bool(start_date and end_date)
+        
         # Build filtered query
-        query = build_filtered_shipment_query(data)
+        query = build_filtered_shipment_query(data, use_all_data=use_all_data)
         entries = query.all()
         
         if not entries:
@@ -505,11 +514,16 @@ def generate_chinapost():
 def generate_cbd():
     """Generate CBD export file with optional filtering"""
     try:
-        # Get filters from request body (same as historical-data endpoint)
+        # Get filters from request body
         data = request.json or {}
         
+        # Check if date filters are provided (indicating Historical Data request)
+        start_date = data.get('startDate')
+        end_date = data.get('endDate')
+        use_all_data = bool(start_date and end_date)
+        
         # Build filtered query
-        query = build_filtered_shipment_query(data)
+        query = build_filtered_shipment_query(data, use_all_data=use_all_data)
         entries = query.all()
         
         if not entries:
@@ -540,15 +554,23 @@ def generate_cbd():
 
 @app.route('/get-analytics-data', methods=['GET', 'POST'])
 def get_analytics_data():
-    """Get analytics data for dashboard from most recent upload only - BACKEND PROCESSED ONLY"""
+    """Get analytics data for dashboard - filters by recent upload OR historical data based on request"""
     try:
-        # Always use data from most recent upload, ignore date filters for this endpoint
-        most_recent_upload_id = FileUploadHistory.get_most_recent_upload_id()
-        
-        if most_recent_upload_id:
-            query = ProcessedShipment.query.filter(ProcessedShipment.file_upload_id == most_recent_upload_id)
+        # Check if this is a POST request with date filters (from Historical Data page)
+        if request.method == 'POST':
+            data = request.json or {}
+            start_date = data.get('startDate')
+            end_date = data.get('endDate')
+            
+            if start_date and end_date:
+                # Historical Data request: Query entire database with filters
+                query = build_filtered_shipment_query(data, use_all_data=True)
+            else:
+                # Data Processing request: Use recent upload only
+                query = build_filtered_shipment_query(data, use_all_data=False)
         else:
-            query = ProcessedShipment.query
+            # GET request: Always use recent upload (from Data Processing tabs)
+            query = build_filtered_shipment_query(None, use_all_data=False)
         
         # Execute query
         entries = query.all()
@@ -1246,7 +1268,7 @@ def calculate_tariff():
         # Store weight in result for reference
         result['weight'] = weight
         
-        if not result['fallback_used']:
+        if result['calculation_method'] == 'configured_category':
             # Configured rate found - build detailed response
             rate_used = result['rate_used']
             
@@ -2364,7 +2386,7 @@ def calculate_enhanced_tariff():
             'calculation_result': {
                 'total_tariff': result['tariff_amount'],
                 'calculation_method': result['calculation_method'],
-                'fallback_used': result['fallback_used']
+                'fallback_used': result['calculation_method'] != 'configured_category'
             },
             'rate_breakdown': {
                 'rate_percentage': round(result['rate_percentage'] * 100, 2),

@@ -433,7 +433,7 @@ class DataProcessor:
                         tariff_result['rate_used'].tariff_rate if tariff_result['rate_used'] else fallback_rate
                     )
                     results['methods'].append(
-                        'configured' if not tariff_result['fallback_used'] else 'fallback'
+                        'configured' if tariff_result['calculation_method'] == 'configured_category' else 'fallback'
                     )
                     results['shipment_dates'].append(ship_date)
                 else:
@@ -554,7 +554,7 @@ class DataProcessor:
         Returns:
             date: Parsed date or today's date if parsing fails
         """
-        from data_converter import parse_date_flexible
+        from utils.data_converter import parse_date_flexible
         
         parsed_date = parse_date_flexible(date_str)
         if parsed_date:
