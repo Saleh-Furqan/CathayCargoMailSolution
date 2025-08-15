@@ -94,6 +94,9 @@ const TariffManagement: React.FC = () => {
   const [systemDefaults, setSystemDefaults] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [originFilter, setOriginFilter] = useState('');
+  const [destinationFilter, setDestinationFilter] = useState('');
+  const [showPresetFilters, setShowPresetFilters] = useState(false);
   const [showBulkForm, setShowBulkForm] = useState(false);
   const [bulkRateConfig, setBulkRateConfig] = useState<BulkRateConfig | null>(null);
   const [isEditingExisting, setIsEditingExisting] = useState(false);
@@ -633,13 +636,31 @@ const TariffManagement: React.FC = () => {
   };
 
   const filteredRoutes = routes.filter(route => {
+    let matchesSearch = true;
+    let matchesOrigin = true;
+    let matchesDestination = true;
+
+    // General search term filter (if provided)
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
-      return route.route.toLowerCase().includes(search) ||
-             route.origin.toLowerCase().includes(search) ||
-             route.destination.toLowerCase().includes(search);
+      matchesSearch = route.route.toLowerCase().includes(search) ||
+                     route.origin.toLowerCase().includes(search) ||
+                     route.destination.toLowerCase().includes(search);
     }
-    return true;
+
+    // Origin filter (if provided)
+    if (originFilter) {
+      const originSearch = originFilter.toLowerCase();
+      matchesOrigin = route.origin.toLowerCase().includes(originSearch);
+    }
+
+    // Destination filter (if provided)
+    if (destinationFilter) {
+      const destinationSearch = destinationFilter.toLowerCase();
+      matchesDestination = route.destination.toLowerCase().includes(destinationSearch);
+    }
+
+    return matchesSearch && matchesOrigin && matchesDestination;
   });
 
   const uniqueStations = React.useMemo(() => {
@@ -650,6 +671,44 @@ const TariffManagement: React.FC = () => {
     });
     return Array.from(stations).sort();
   }, [routes]);
+
+  // Get common route pairs for preset filters
+  const commonRoutePairs = React.useMemo(() => {
+    const routeCounts = new Map<string, number>();
+    routes.forEach(route => {
+      const routeKey = `${route.origin}-${route.destination}`;
+      routeCounts.set(routeKey, (routeCounts.get(routeKey) || 0) + route.shipment_count);
+    });
+    
+    // Get top 6 most common routes
+    return Array.from(routeCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([routeKey]) => {
+        const [origin, destination] = routeKey.split('-');
+        return { origin, destination };
+      });
+  }, [routes]);
+
+  const handlePresetFilter = (origin: string, destination: string) => {
+    setOriginFilter(origin);
+    setDestinationFilter(destination);
+    setSearchTerm(''); // Clear general search when using preset
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setOriginFilter('');
+    setDestinationFilter('');
+  };
+
+  // Handle keyboard shortcuts for search
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    // Clear filters with Escape key
+    if (event.key === 'Escape') {
+      clearAllFilters();
+    }
+  };
 
   if (loading) {
     return (
@@ -717,20 +776,201 @@ const TariffManagement: React.FC = () => {
 
         {/* Search */}
         <div className="mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-            <input
-              type="text"
-              placeholder="Search routes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
-            />
+          <div className="bg-white rounded-lg shadow p-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Search & Filter Routes</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* General Search */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  General Search
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                  <input
+                    type="text"
+                    placeholder="Search routes (general)..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Search across all route information • Press ESC to clear</p>
+              </div>
+
+              {/* Origin Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Origin Country
+                </label>
+                <div className="relative">
+                  <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                  <input
+                    type="text"
+                    placeholder="Filter by origin..."
+                    value={originFilter}
+                    onChange={(e) => setOriginFilter(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    list="origin-filter-list"
+                  />
+                  <datalist id="origin-filter-list">
+                    {uniqueStations.map(station => (
+                      <option key={station} value={station}>{station}</option>
+                    ))}
+                  </datalist>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Filter by specific origin country</p>
+              </div>
+
+              {/* Destination Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Destination Country
+                </label>
+                <div className="relative">
+                  <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                  <input
+                    type="text"
+                    placeholder="Filter by destination..."
+                    value={destinationFilter}
+                    onChange={(e) => setDestinationFilter(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-cathay-teal focus:border-transparent"
+                    list="destination-filter-list"
+                  />
+                  <datalist id="destination-filter-list">
+                    {uniqueStations.map(station => (
+                      <option key={station} value={station}>{station}</option>
+                    ))}
+                  </datalist>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Filter by specific destination country</p>
+              </div>
+            </div>
+
+            {/* Quick Preset Filters */}
+            {commonRoutePairs.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-gray-700">Quick route filters:</span>
+                  <button
+                    onClick={() => setShowPresetFilters(!showPresetFilters)}
+                    className="text-sm text-cathay-teal hover:text-cathay-teal-dark"
+                  >
+                    {showPresetFilters ? 'Hide' : 'Show'} common routes
+                  </button>
+                </div>
+                
+                {showPresetFilters && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                    {commonRoutePairs.map((pair, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handlePresetFilter(pair.origin, pair.destination)}
+                        className="text-xs bg-gray-100 hover:bg-cathay-teal hover:text-white text-gray-700 px-2 py-1 rounded transition-colors duration-200"
+                      >
+                        {pair.origin} → {pair.destination}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Active Filters Display */}
+            {(searchTerm || originFilter || destinationFilter) && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700">Active filters:</span>
+                  
+                  {searchTerm && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      General: "{searchTerm}"
+                      <button
+                        onClick={() => setSearchTerm('')}
+                        className="ml-1 text-blue-600 hover:text-blue-800"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )}
+                  
+                  {originFilter && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      Origin: "{originFilter}"
+                      <button
+                        onClick={() => setOriginFilter('')}
+                        className="ml-1 text-green-600 hover:text-green-800"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )}
+                  
+                  {destinationFilter && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                      Destination: "{destinationFilter}"
+                      <button
+                        onClick={() => setDestinationFilter('')}
+                        className="ml-1 text-purple-600 hover:text-purple-800"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )}
+                  
+                  <button
+                    onClick={clearAllFilters}
+                    className="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1 ml-2"
+                  >
+                    <X className="h-4 w-4" />
+                    Clear all
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Results Count */}
+            <div className="mt-4 text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <span>
+                  Showing <span className="font-medium text-cathay-teal">{filteredRoutes.length}</span> of <span className="font-medium">{routes.length}</span> routes
+                  {(searchTerm || originFilter || destinationFilter) && (
+                    <span className="ml-2 text-cathay-teal font-medium">
+                      (filtered)
+                    </span>
+                  )}
+                </span>
+                
+                {filteredRoutes.length === 0 && routes.length > 0 && (
+                  <span className="text-orange-600 font-medium">
+                    No routes match your search criteria
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Routes Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        {filteredRoutes.length === 0 && routes.length > 0 && (searchTerm || originFilter || destinationFilter) ? (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <Search className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No routes found</h3>
+            <p className="text-gray-600 mb-4">
+              No routes match your current search criteria. Try adjusting your filters or clearing them to see all routes.
+            </p>
+            <button
+              onClick={clearAllFilters}
+              className="bg-cathay-teal text-white px-4 py-2 rounded-md hover:bg-cathay-teal-dark"
+            >
+              Clear all filters
+            </button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -872,6 +1112,7 @@ const TariffManagement: React.FC = () => {
             </table>
           </div>
         </div>
+        )}
 
         {/* Bulk Rate Configuration Modal */}
         {showBulkForm && bulkRateConfig && (
