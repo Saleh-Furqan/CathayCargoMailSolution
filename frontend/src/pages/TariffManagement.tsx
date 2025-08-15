@@ -575,6 +575,10 @@ const TariffManagement: React.FC = () => {
       const enabledCategories = bulkRateConfig.category_configs.filter(config => config.enabled);
       const disabledCategories = bulkRateConfig.category_configs.filter(config => !config.enabled);
       
+      // Check if dates are changing
+      const datesChanging = bulkRateConfig.start_date !== originalPeriodConfig.start_date || 
+                           bulkRateConfig.end_date !== originalPeriodConfig.end_date;
+      
       // Step 1: Delete rates for categories that are now disabled
       for (const disabledCategory of disabledCategories) {
         const rateToDelete = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === disabledCategory.category);
@@ -588,23 +592,43 @@ const TariffManagement: React.FC = () => {
         const existingRate = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === enabledCategory.category);
         
         if (existingRate) {
-          // Update existing rate
-          await apiService.updateTariffRate(existingRate.id, {
-            tariff_rate: enabledCategory.rate,
-            minimum_tariff: bulkRateConfig.minimum_tariff,
-            maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
-            notes: `${bulkRateConfig.notes} (Updated via edit)`,
-            is_active: true
-          });
+          if (datesChanging) {
+            // If dates are changing, delete the old rate and create a new one with new dates
+            await apiService.deleteTariffRate(existingRate.id);
+            await apiService.createTariffRate({
+              origin_country: bulkRateConfig.origin,
+              destination_country: bulkRateConfig.destination,
+              goods_category: enabledCategory.category,
+              postal_service: bulkRateConfig.postal_service,
+              start_date: bulkRateConfig.start_date,
+              end_date: bulkRateConfig.end_date,
+              min_weight: bulkRateConfig.min_weight,
+              max_weight: bulkRateConfig.max_weight,
+              tariff_rate: enabledCategory.rate,
+              minimum_tariff: bulkRateConfig.minimum_tariff,
+              maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+              currency: 'USD',
+              notes: `${bulkRateConfig.notes} (Updated via edit with date change)`
+            });
+          } else {
+            // If dates are not changing, just update the existing rate
+            await apiService.updateTariffRate(existingRate.id, {
+              tariff_rate: enabledCategory.rate,
+              minimum_tariff: bulkRateConfig.minimum_tariff,
+              maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+              notes: `${bulkRateConfig.notes} (Updated via edit)`,
+              is_active: true
+            });
+          }
         } else {
-          // Create new rate for this category within the SAME period (use original dates)
+          // Create new rate for this category
           await apiService.createTariffRate({
             origin_country: bulkRateConfig.origin,
             destination_country: bulkRateConfig.destination,
             goods_category: enabledCategory.category,
             postal_service: bulkRateConfig.postal_service,
-            start_date: originalPeriodConfig.start_date, // Use original dates to stay in same period
-            end_date: originalPeriodConfig.end_date,     // Use original dates to stay in same period
+            start_date: datesChanging ? bulkRateConfig.start_date : originalPeriodConfig.start_date,
+            end_date: datesChanging ? bulkRateConfig.end_date : originalPeriodConfig.end_date,
             min_weight: bulkRateConfig.min_weight,
             max_weight: bulkRateConfig.max_weight,
             tariff_rate: enabledCategory.rate,
@@ -612,46 +636,6 @@ const TariffManagement: React.FC = () => {
             maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
             currency: 'USD',
             notes: `${bulkRateConfig.notes} (Added via edit)`
-          });
-        }
-      }
-      
-      // Step 3: Update date ranges for all remaining rates if dates changed
-      if (bulkRateConfig.start_date !== originalPeriodConfig.start_date || 
-          bulkRateConfig.end_date !== originalPeriodConfig.end_date) {
-        
-        // For date changes, we need to recreate the rates since updateTariffRate doesn't support date changes
-        // Get all remaining rates for this period
-        const currentRatesResponse = await apiService.getTariffRates();
-        const currentRates = currentRatesResponse.tariff_rates || [];
-        
-        const ratesToUpdateDates = currentRates.filter((rate: TariffRateConfig) => 
-          rate.origin_country === bulkRateConfig.origin && 
-          rate.destination_country === bulkRateConfig.destination &&
-          rate.postal_service === bulkRateConfig.postal_service &&
-          rate.start_date === originalPeriodConfig.start_date &&
-          rate.end_date === originalPeriodConfig.end_date
-        );
-        
-        // Delete old rates and recreate with new dates
-        for (const rate of ratesToUpdateDates) {
-          await apiService.deleteTariffRate(rate.id);
-          
-          // Recreate with new dates
-          await apiService.createTariffRate({
-            origin_country: rate.origin_country,
-            destination_country: rate.destination_country,
-            goods_category: rate.goods_category,
-            postal_service: rate.postal_service,
-            start_date: bulkRateConfig.start_date,
-            end_date: bulkRateConfig.end_date,
-            min_weight: rate.min_weight,
-            max_weight: rate.max_weight,
-            tariff_rate: rate.tariff_rate,
-            minimum_tariff: rate.minimum_tariff,
-            maximum_tariff: rate.maximum_tariff,
-            currency: rate.currency,
-            notes: `${rate.notes} (Date updated via edit)`
           });
         }
       }
@@ -1053,11 +1037,6 @@ const TariffManagement: React.FC = () => {
                           </div>
                           <div className="text-sm text-gray-500">
                             {route.origin} → {route.destination}
-                            {route.start_date && route.end_date && (
-                              <span className="ml-2 text-xs text-blue-600">
-                                ({route.start_date} to {route.end_date})
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
