@@ -90,7 +90,7 @@ const FileHistory: React.FC = () => {
   };
 
   const deleteFile = async (fileId: number) => {
-    if (!confirm('Are you sure you want to delete this file record? This action cannot be undone.')) {
+    if (!confirm('Are you sure you want to delete this file record AND all associated shipment data? This action cannot be undone.')) {
       return;
     }
     
@@ -99,7 +99,7 @@ const FileHistory: React.FC = () => {
       setFileHistory(prev => prev.filter(file => file.id !== fileId));
     } catch (error) {
       console.error('Error deleting file:', error);
-      alert('Failed to delete file record. Please try again.');
+      alert('Failed to delete file record and associated data. Please try again.');
     }
   };
 
@@ -390,9 +390,10 @@ const FileHistory: React.FC = () => {
                         <button
                           onClick={() => deleteFile(file.id)}
                           className="inline-flex items-center text-xs px-2 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200"
+                          title="Delete file record and all associated shipment data permanently"
                         >
                           <Trash2 className="h-3 w-3 mr-1" />
-                          Delete File
+                          Delete File & Data
                         </button>
                         <button
                           onClick={() => deleteAllFileRecords(file.id)}
@@ -400,16 +401,16 @@ const FileHistory: React.FC = () => {
                           className={`inline-flex items-center text-xs px-2 py-1 rounded ${
                             file.processing_status === 'deleted'
                               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                              : 'bg-red-600 text-white hover:bg-red-700'
+                              : 'bg-orange-100 text-orange-800 hover:bg-orange-200'
                           }`}
                           title={
                             file.processing_status === 'deleted'
                               ? 'Shipment data already removed - file is marked as deleted'
-                              : 'Mark file as deleted and remove all related shipment data'
+                              : 'Keep file record for audit but remove all shipment data'
                           }
                         >
                           <Database className="h-3 w-3 mr-1" />
-                          {file.processing_status === 'deleted' ? 'Data Removed' : 'Delete All Data'}
+                          {file.processing_status === 'deleted' ? 'Data Removed' : 'Delete Data'}
                         </button>
                       </div>
                     </td>

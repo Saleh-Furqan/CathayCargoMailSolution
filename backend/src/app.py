@@ -2622,7 +2622,7 @@ def download_file(file_id, file_type):
 
 @app.route('/file-history/<int:file_id>', methods=['DELETE'])
 def delete_file_history(file_id):
-    """Delete a file history record (binary data stored in database)"""
+    """Delete a file history record and ALL associated shipment data"""
     try:
         # Get the file history record
         upload_record = FileUploadHistory.query.get(file_id)
@@ -2638,14 +2638,19 @@ def delete_file_history(file_id):
         if upload_record.cbd_file_data:
             files_deleted.append('cbd')
         
+        # Count and delete all related shipment records
+        related_shipments_count = ProcessedShipment.query.filter_by(file_upload_id=file_id).count()
+        ProcessedShipment.query.filter_by(file_upload_id=file_id).delete()
+        
         # Delete the database record (this automatically deletes the binary data)
         db.session.delete(upload_record)
         db.session.commit()
         
         return jsonify({
             'success': True,
-            'message': 'File history record deleted successfully',
-            'deleted_files': files_deleted
+            'message': f'File history record and {related_shipments_count} associated shipment records deleted successfully',
+            'deleted_files': files_deleted,
+            'deleted_shipments': related_shipments_count
         })
         
     except Exception as e:
