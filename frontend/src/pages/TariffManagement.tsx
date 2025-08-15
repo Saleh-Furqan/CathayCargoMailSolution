@@ -118,10 +118,48 @@ const TariffManagement: React.FC = () => {
     message: string;
     type: 'success' | 'error' | 'info';
   } | null>(null);
+  const [showRateDetails, setShowRateDetails] = useState<{
+    route: TariffRoute;
+    categoryRates: { category: string; rate: number; }[];
+  } | null>(null);
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const handleShowRateDetails = async (route: TariffRoute) => {
+    if (!route.has_configured_rate || !route.configured_rate) {
+      showNotification('No configured rates for this route', 'info');
+      return;
+    }
+
+    try {
+      // Fetch all rates for this specific route and time period
+      const allRatesResponse = await apiService.getTariffRates();
+      const allRates = allRatesResponse.tariff_rates || [];
+      
+      // Filter rates for this specific route and time period
+      const routeRates = allRates.filter((rate: TariffRateConfig) => 
+        rate.origin_country === route.origin && 
+        rate.destination_country === route.destination &&
+        rate.start_date === route.configured_rate?.start_date &&
+        rate.end_date === route.configured_rate?.end_date
+      );
+
+      const categoryRates = routeRates.map((rate: TariffRateConfig) => ({
+        category: rate.goods_category,
+        rate: rate.tariff_rate
+      }));
+
+      setShowRateDetails({
+        route,
+        categoryRates
+      });
+    } catch (error) {
+      console.error('Error fetching rate details:', error);
+      showNotification('Error loading rate details', 'error');
+    }
   };
 
   const checkForDateConflicts = (origin: string, destination: string, startDate: string, endDate: string, excludeCurrentPeriod: boolean = false) => {
@@ -994,7 +1032,7 @@ const TariffManagement: React.FC = () => {
                     End Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Current Rate
+                    Rate Details
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
@@ -1041,40 +1079,16 @@ const TariffManagement: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {route.has_configured_rate && route.configured_rate ? (
-                        <div>
-                          <span className="text-sm font-medium text-green-600">
-                            {((route.configured_rate.tariff_rate + route.configured_rate.category_surcharge) * 100).toFixed(1)}%
-                            {route.configured_rate.category_surcharge > 0 && (
-                              <span className="text-xs text-blue-600 ml-1">
-                                +{(route.configured_rate.category_surcharge * 100).toFixed(1)}%
-                              </span>
-                            )}
-                          </span>
-                          <div className="text-xs text-gray-500">
-                            {route.configured_rate.category_surcharge > 0 && (
-                              <div>
-                                Rate: {(route.configured_rate.tariff_rate * 100).toFixed(1)}% 
-                                Surcharge: {(route.configured_rate.category_surcharge * 100).toFixed(1)}% = 
-                                Total: {((route.configured_rate.tariff_rate + route.configured_rate.category_surcharge) * 100).toFixed(1)}%
-                              </div>
-                            )}
-                            Min: ${route.configured_rate.minimum_tariff}
-                            {route.configured_rate.maximum_tariff && (
-                              `, Max: $${route.configured_rate.maximum_tariff}`
-                            )}
-                          </div>
-                        </div>
+                      {route.has_configured_rate ? (
+                        <button
+                          onClick={() => handleShowRateDetails(route)}
+                          className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors"
+                        >
+                          <TrendingUp className="w-3 h-3 mr-1" />
+                          View Rates
+                        </button>
                       ) : (
-                        <div>
-                          <span className="text-sm text-orange-600 font-medium">Using Fallback</span>
-                          <div className="text-xs text-gray-500">
-                            {route.shipment_count > 0 
-                              ? `System will use ${(route.historical_rate * 100).toFixed(1)}% rate`
-                              : 'System will use 80% default rate'
-                            }
-                          </div>
-                        </div>
+                        <span className="text-xs text-gray-400 italic">No rates</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -1736,6 +1750,97 @@ const TariffManagement: React.FC = () => {
                       ship_date: '',
                     });
                   }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rate Details Popup */}
+        {showRateDetails && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Rate Details
+                </h3>
+                <button
+                  onClick={() => setShowRateDetails(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Route:</span> {showRateDetails.route.origin} → {showRateDetails.route.destination}
+                </p>
+                {showRateDetails.route.start_date && showRateDetails.route.end_date && (
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Period:</span> {showRateDetails.route.start_date} to {showRateDetails.route.end_date}
+                  </p>
+                )}
+                {showRateDetails.route.configured_rate && (
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Service:</span> {showRateDetails.route.configured_rate.postal_service === '*' ? 'All Services' : showRateDetails.route.configured_rate.postal_service}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-medium text-gray-900">Enabled Categories & Rates</h4>
+                {showRateDetails.categoryRates.length > 0 ? (
+                  <div className="space-y-2">
+                    {showRateDetails.categoryRates.map((categoryRate, index) => (
+                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <span className="text-sm font-medium text-gray-700">
+                          {categoryRate.category}
+                        </span>
+                        <span className="text-sm font-semibold text-cathay-teal">
+                          {(categoryRate.rate * 100).toFixed(2)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No category rates configured</p>
+                )}
+
+                {showRateDetails.route.configured_rate && (
+                  <div className="pt-3 border-t border-gray-200">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Minimum Tariff:</span>
+                        <span className="font-medium">${showRateDetails.route.configured_rate.minimum_tariff}</span>
+                      </div>
+                      {showRateDetails.route.configured_rate.maximum_tariff && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Maximum Tariff:</span>
+                          <span className="font-medium">${showRateDetails.route.configured_rate.maximum_tariff}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Weight Range:</span>
+                        <span className="font-medium">{showRateDetails.route.configured_rate.min_weight}g - {showRateDetails.route.configured_rate.max_weight}g</span>
+                      </div>
+                      {showRateDetails.route.configured_rate.notes && (
+                        <div className="pt-2">
+                          <span className="text-gray-600">Notes:</span>
+                          <p className="text-sm text-gray-700 mt-1">{showRateDetails.route.configured_rate.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end mt-6 pt-4 border-t">
+                <button
+                  onClick={() => setShowRateDetails(null)}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
                 >
                   Close
