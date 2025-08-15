@@ -489,6 +489,19 @@ class ApiService {
     return response.json();
   }
 
+  async deleteAllFileRecords(fileId: number) {
+    const response = await fetch(`${API_BASE_URL}/file-history/${fileId}/delete-all-records`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete file record and all related data');
+    }
+
+    return response.json();
+  }
+
   // Legacy methods - kept for backward compatibility but no longer send data
   async processData(_data: any[]): Promise<ProcessDataResponse> {
     // This method is now deprecated - all processing happens in backend

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, FileText, Clock, CheckCircle, XCircle, AlertCircle, Search, Filter, Calendar, Trash2 } from 'lucide-react';
+import { Download, Upload, FileText, Clock, CheckCircle, XCircle, AlertCircle, Search, Filter, Calendar, Trash2, Database } from 'lucide-react';
 import { apiService } from '../services/api';
 
 interface FileHistoryRecord {
@@ -9,7 +9,7 @@ interface FileHistoryRecord {
   file_size_bytes: number;
   file_size_mb: number;
   upload_timestamp: string;
-  processing_status: 'pending' | 'processing' | 'processed' | 'failed';
+  processing_status: 'pending' | 'processing' | 'processed' | 'failed' | 'deleted';
   processing_started_at: string;
   processing_completed_at: string;
   processing_error: string | null;
@@ -103,6 +103,28 @@ const FileHistory: React.FC = () => {
     }
   };
 
+  const deleteAllFileRecords = async (fileId: number) => {
+    if (!confirm('Are you sure you want to mark this file as deleted AND REMOVE ALL RELATED SHIPMENT DATA? This will permanently remove all shipment records imported from this file. The file record will be preserved for audit purposes but marked as deleted. This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      const response = await apiService.deleteAllFileRecords(fileId);
+      
+      // Update the file status in the local state instead of removing it
+      setFileHistory(prev => prev.map(file => 
+        file.id === fileId 
+          ? { ...file, processing_status: 'deleted' as const, processing_error: response.message }
+          : file
+      ));
+      
+      alert(`Successfully marked file as deleted and removed ${response.deleted_shipments} related shipment records.`);
+    } catch (error) {
+      console.error('Error marking file as deleted and removing related records:', error);
+      alert('Failed to mark file as deleted and remove related data. Please try again.');
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'processed':
@@ -111,6 +133,8 @@ const FileHistory: React.FC = () => {
         return <XCircle className="h-5 w-5 text-red-600" />;
       case 'processing':
         return <AlertCircle className="h-5 w-5 text-yellow-600" />;
+      case 'deleted':
+        return <Trash2 className="h-5 w-5 text-gray-600" />;
       default:
         return <Clock className="h-5 w-5 text-gray-600" />;
     }
@@ -124,6 +148,8 @@ const FileHistory: React.FC = () => {
         return 'Failed';
       case 'processing':
         return 'Processing';
+      case 'deleted':
+        return 'Deleted';
       default:
         return 'Pending';
     }
@@ -213,6 +239,7 @@ const FileHistory: React.FC = () => {
               <option value="processing">Processing</option>
               <option value="failed">Failed</option>
               <option value="pending">Pending</option>
+              <option value="deleted">Deleted</option>
             </select>
           </div>
 
@@ -359,13 +386,32 @@ const FileHistory: React.FC = () => {
 
                     {/* Actions */}
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => deleteFile(file.id)}
-                        className="inline-flex items-center text-xs px-2 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200"
-                      >
-                        <Trash2 className="h-3 w-3 mr-1" />
-                        Delete
-                      </button>
+                      <div className="flex flex-col space-y-1">
+                        <button
+                          onClick={() => deleteFile(file.id)}
+                          className="inline-flex items-center text-xs px-2 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200"
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Delete File
+                        </button>
+                        <button
+                          onClick={() => deleteAllFileRecords(file.id)}
+                          disabled={file.processing_status === 'deleted'}
+                          className={`inline-flex items-center text-xs px-2 py-1 rounded ${
+                            file.processing_status === 'deleted'
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : 'bg-red-600 text-white hover:bg-red-700'
+                          }`}
+                          title={
+                            file.processing_status === 'deleted'
+                              ? 'Shipment data already removed - file is marked as deleted'
+                              : 'Mark file as deleted and remove all related shipment data'
+                          }
+                        >
+                          <Database className="h-3 w-3 mr-1" />
+                          {file.processing_status === 'deleted' ? 'Data Removed' : 'Delete All Data'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

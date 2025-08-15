@@ -2652,6 +2652,54 @@ def delete_file_history(file_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/file-history/<int:file_id>/delete-all-records', methods=['DELETE'])
+def delete_all_file_records(file_id):
+    """Mark file history as deleted and delete ALL related shipment records"""
+    try:
+        # Get the file history record
+        upload_record = FileUploadHistory.query.get(file_id)
+        if not upload_record:
+            return jsonify({'error': 'File record not found'}), 404
+        
+        # Check if already marked as deleted
+        if upload_record.processing_status == 'deleted':
+            return jsonify({'error': 'File record is already marked as deleted'}), 400
+        
+        # Count related shipment records
+        related_shipments = ProcessedShipment.query.filter_by(file_upload_id=file_id).count()
+        
+        # Count files that will be preserved
+        files_preserved = []
+        if upload_record.original_file_data:
+            files_preserved.append('original')
+        if upload_record.chinapost_file_data:
+            files_preserved.append('chinapost')
+        if upload_record.cbd_file_data:
+            files_preserved.append('cbd')
+        
+        # Delete all related shipment records
+        ProcessedShipment.query.filter_by(file_upload_id=file_id).delete()
+        
+        # Mark the file history record as deleted instead of actually deleting it
+        upload_record.processing_status = 'deleted'
+        upload_record.processing_completed_at = datetime.now()
+        upload_record.processing_error = f'File marked as deleted - {related_shipments} shipment records removed'
+        
+        # Commit all changes
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'File history record marked as deleted and {related_shipments} related shipment records removed',
+            'preserved_files': files_preserved,
+            'deleted_shipments': related_shipments,
+            'status': 'deleted'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/file-history/<int:file_id>/reprocess', methods=['POST'])
 def reprocess_file(file_id):
     """Reprocess a previously uploaded file from binary data"""
