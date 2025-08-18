@@ -736,7 +736,14 @@ def get_analytics_data():
                 "unique_carriers": len(carriers),
                 "unique_receptacles": len(receptacles),
                 "unique_categories": len(category_breakdown),
-                "unique_services": len(service_breakdown)
+                "unique_services": len(service_breakdown),
+                # Additional KPIs for logistics dashboard
+                "average_weight_per_shipment": round(total_weight / len(entries), 2) if len(entries) > 0 else 0,
+                "average_value_per_shipment": round(total_declared_value / len(entries), 2) if len(entries) > 0 else 0,
+                "average_tariff_per_shipment": round(total_tariff / len(entries), 2) if len(entries) > 0 else 0,
+                "revenue_per_kg": round(total_tariff / total_weight, 2) if total_weight > 0 else 0,
+                "tariff_to_value_ratio": round((total_tariff / total_declared_value) * 100, 2) if total_declared_value > 0 else 0,
+                "shipment_density": round(total_weight / len(entries), 2) if len(entries) > 0 else 0,
             },
             "breakdown": {
                 "by_destination": dest_data,
