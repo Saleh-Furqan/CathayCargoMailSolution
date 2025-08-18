@@ -14,6 +14,7 @@ import {
   Building,
   Plane,
 } from 'lucide-react';
+import { formatDateTime } from '../utils/displayHelpers';
 import { DataFile } from '../types';
 import { apiService, downloadBlob, ProcessDataResponse } from '../services/api';
 import Dashboard from '../components/Dashboard/Dashboard';
@@ -286,13 +287,7 @@ const DataIngestion: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateTime(dateString);
   };
 
   const removeFile = (fileId: string) => {
@@ -482,7 +477,7 @@ const DataIngestion: React.FC = () => {
         {processedData.length > 0 && (
           <div className="text-sm text-gray-500">
             <p>{processedData.length} records processed</p>
-            <p>Last updated: {new Date().toLocaleTimeString()}</p>
+            <p>Last updated: {formatDateTime(new Date().toISOString()).split(' ')[1]}</p>
           </div>
         )}
       </div>

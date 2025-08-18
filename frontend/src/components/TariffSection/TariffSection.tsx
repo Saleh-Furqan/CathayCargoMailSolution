@@ -1,5 +1,6 @@
 import React from 'react';
 import { DollarSign, TrendingUp, Calculator } from 'lucide-react';
+import { formatDate } from '../../utils/displayHelpers';
 
 interface TariffInfo {
   tariff_rate: number;
@@ -21,13 +22,6 @@ const TariffSection: React.FC<TariffSectionProps> = ({
   title = "Tariff Information",
   showDetails = true 
 }) => {
-  // Helper function to format date as YYYY-MM-DD
-  const formatDate = (dateStr?: string): string => {
-    if (!dateStr) return 'N/A';
-    // Extract date part (remove time if present)
-    const datePart = dateStr.split('T')[0] || dateStr.split(' ')[0] || dateStr;
-    return datePart;
-  };
 
   // Calculate summary statistics
   const totalDeclaredValue = data.reduce((sum, item) => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Upload, FileText, Clock, CheckCircle, XCircle, AlertCircle, Search, Filter, Calendar, Trash2, Database } from 'lucide-react';
 import { apiService } from '../services/api';
+import { formatDateTime } from '../utils/displayHelpers';
 
 interface FileHistoryRecord {
   id: number;
@@ -157,14 +158,7 @@ const FileHistory: React.FC = () => {
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateTime(dateString);
   };
 
   const formatFileSize = (bytes: number) => {

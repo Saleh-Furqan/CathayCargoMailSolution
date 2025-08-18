@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   CheckCircle,
 } from 'lucide-react';
+import { formatDateTime } from '../../utils/displayHelpers';
 
 interface DashboardProps {
   data: any[];
@@ -143,7 +144,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, processResult }) => {
         </div>
         <div className="flex items-center space-x-2 text-sm text-gray-500 flex-shrink-0">
           <Clock className="h-4 w-4" />
-          <span>Last updated: {new Date().toLocaleTimeString()}</span>
+          <span>Last updated: {formatDateTime(new Date().toISOString()).split(' ')[1]}</span>
         </div>
       </div>
 

@@ -127,6 +127,60 @@ export const formatWeight = (value: number | string | null | undefined): string 
 };
 
 /**
+ * Format date as DD/MM/YYYY
+ */
+export const formatDate = (dateStr?: string | null): string => {
+  if (!dateStr) return 'N/A';
+  
+  try {
+    // Handle different date formats and extract the date part
+    const datePart = dateStr.split('T')[0] || dateStr.split(' ')[0] || dateStr;
+    const date = new Date(datePart);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return dateStr; // Return original string if parsing fails
+    }
+    
+    // Format as DD/MM/YYYY
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    
+    return `${day}/${month}/${year}`;
+  } catch (error) {
+    return dateStr; // Return original string if any error occurs
+  }
+};
+
+/**
+ * Format date and time as DD/MM/YYYY HH:MM
+ */
+export const formatDateTime = (dateStr?: string | null): string => {
+  if (!dateStr) return 'N/A';
+  
+  try {
+    const date = new Date(dateStr);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return dateStr; // Return original string if parsing fails
+    }
+    
+    // Format as DD/MM/YYYY HH:MM
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  } catch (error) {
+    return dateStr; // Return original string if any error occurs
+  }
+};
+
+/**
  * Create tooltip component properties
  */
 export const createTooltipProps = (explanation: string) => {

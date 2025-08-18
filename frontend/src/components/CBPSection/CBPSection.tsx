@@ -9,6 +9,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { apiService } from '../../services/api';
+import { formatDate } from '../../utils/displayHelpers';
 
 interface CBPSectionProps {
   data: any[];
@@ -29,7 +30,7 @@ const CBPSection: React.FC<CBPSectionProps> = ({ data, onDownload, isAvailable }
     flightTripNumber: item.flight_trip_number || '',
     trackingNumber: item.tracking_number || '',
     arrivalPortCode: item.arrival_port_code || '',
-    arrivalDate: item.arrival_date_formatted || item.arrival_date || '',
+    arrivalDate: formatDate(item.arrival_date_formatted || item.arrival_date),
     declaredValue: item.declared_value_usd || item.declared_value || '',
     // Additional backend fields for context
     pawb: item.pawb || '',

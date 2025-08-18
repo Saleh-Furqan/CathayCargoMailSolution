@@ -13,6 +13,7 @@ import {
   Plus
 } from 'lucide-react';
 import { apiService } from '../services/api';
+import { formatDate } from '../utils/displayHelpers';
 
 interface TariffRoute {
   origin: string;
@@ -1048,12 +1049,12 @@ const TariffManagement: React.FC = () => {
                       ${route.total_declared_value.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {route.start_date || (
+                      {route.start_date ? formatDate(route.start_date) : (
                         <span className="text-gray-400 italic">No config</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {route.end_date || (
+                      {route.end_date ? formatDate(route.end_date) : (
                         <span className="text-gray-400 italic">No config</span>
                       )}
                     </td>
@@ -1259,7 +1260,7 @@ const TariffManagement: React.FC = () => {
                         const conflicts = checkForDateConflicts(bulkRateConfig.origin, bulkRateConfig.destination, bulkRateConfig.start_date, bulkRateConfig.end_date, isEditingExisting);
                         return conflicts.length > 0 ? (
                           <div className="mt-1 text-xs text-red-600">
-                            Conflicts: {conflicts.map(c => `${c.start_date} to ${c.end_date}`).join(', ')}
+                            Conflicts: {conflicts.map(c => `${formatDate(c.start_date)} to ${formatDate(c.end_date)}`).join(', ')}
                           </div>
                         ) : (
                           <div className="mt-1 text-xs text-green-600">
@@ -1760,7 +1761,7 @@ const TariffManagement: React.FC = () => {
                 </p>
                 {showRateDetails.route.start_date && showRateDetails.route.end_date && (
                   <p className="text-sm text-gray-600">
-                    <span className="font-medium">Period:</span> {showRateDetails.route.start_date} to {showRateDetails.route.end_date}
+                    <span className="font-medium">Period:</span> {formatDate(showRateDetails.route.start_date)} to {formatDate(showRateDetails.route.end_date)}
                   </p>
                 )}
                 {showRateDetails.route.configured_rate && (
