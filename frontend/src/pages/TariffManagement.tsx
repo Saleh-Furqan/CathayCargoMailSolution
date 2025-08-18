@@ -593,34 +593,18 @@ const TariffManagement: React.FC = () => {
         const existingRate = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === enabledCategory.category);
         
         if (existingRate) {
-          if (datesChanging) {
-            // If dates are changing, delete the old rate and create a new one with new dates
-            await apiService.deleteTariffRate(existingRate.id);
-            await apiService.createTariffRate({
-              origin_country: bulkRateConfig.origin,
-              destination_country: bulkRateConfig.destination,
-              goods_category: enabledCategory.category,
-              postal_service: bulkRateConfig.postal_service,
-              start_date: bulkRateConfig.start_date,
-              end_date: bulkRateConfig.end_date,
-              min_weight: bulkRateConfig.min_weight,
-              max_weight: bulkRateConfig.max_weight,
-              tariff_rate: enabledCategory.rate,
-              minimum_tariff: bulkRateConfig.minimum_tariff,
-              maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
-              currency: 'USD',
-              notes: `${bulkRateConfig.notes} (Updated via edit with date change)`
-            });
-          } else {
-            // If dates are not changing, just update the existing rate
-            await apiService.updateTariffRate(existingRate.id, {
-              tariff_rate: enabledCategory.rate,
-              minimum_tariff: bulkRateConfig.minimum_tariff,
-              maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
-              notes: `${bulkRateConfig.notes} (Updated via edit)`,
-              is_active: true
-            });
-          }
+          // Always update the existing rate directly, whether dates are changing or not
+          await apiService.updateTariffRate(existingRate.id, {
+            start_date: bulkRateConfig.start_date,
+            end_date: bulkRateConfig.end_date,
+            min_weight: bulkRateConfig.min_weight,
+            max_weight: bulkRateConfig.max_weight,
+            tariff_rate: enabledCategory.rate,
+            minimum_tariff: bulkRateConfig.minimum_tariff,
+            maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+            notes: `${bulkRateConfig.notes} (Updated via edit${datesChanging ? ' with date change' : ''})`,
+            is_active: true
+          });
         } else {
           // Create new rate for this category
           await apiService.createTariffRate({
@@ -628,8 +612,8 @@ const TariffManagement: React.FC = () => {
             destination_country: bulkRateConfig.destination,
             goods_category: enabledCategory.category,
             postal_service: bulkRateConfig.postal_service,
-            start_date: datesChanging ? bulkRateConfig.start_date : originalPeriodConfig.start_date,
-            end_date: datesChanging ? bulkRateConfig.end_date : originalPeriodConfig.end_date,
+            start_date: bulkRateConfig.start_date,
+            end_date: bulkRateConfig.end_date,
             min_weight: bulkRateConfig.min_weight,
             max_weight: bulkRateConfig.max_weight,
             tariff_rate: enabledCategory.rate,

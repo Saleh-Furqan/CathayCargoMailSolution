@@ -263,7 +263,16 @@ class ApiService {
   }
 
   async updateTariffRate(rateId: number, tariffRateData: {
+    origin_country?: string;
+    destination_country?: string;
+    goods_category?: string;
+    postal_service?: string;
+    start_date?: string;
+    end_date?: string;
+    min_weight?: number;
+    max_weight?: number;
     tariff_rate?: number;
+    category_surcharge?: number;
     minimum_tariff?: number;
     maximum_tariff?: number;
     currency?: string;
