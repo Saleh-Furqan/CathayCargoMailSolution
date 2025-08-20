@@ -31,8 +31,8 @@ interface TariffRoute {
 
 interface TariffRateConfig {
   id: number;
-  origin_country: string;
-  destination_country: string;
+  origin_station: string;
+  destination_station: string;
   goods_category: string;
   postal_service: string;
   start_date: string;
@@ -71,8 +71,8 @@ interface BulkRateConfig {
 }
 
 interface TariffCalculation {
-  origin_country: string;
-  destination_country: string;
+  origin_station: string;
+  destination_station: string;
   goods_category?: string;
   postal_service?: string;
   ship_date?: string;
@@ -468,7 +468,7 @@ const TariffManagement: React.FC = () => {
 
     // Validation
     if (!bulkRateConfig.origin || !bulkRateConfig.destination) {
-      showNotification('Please select both origin and destination countries', 'error');
+      showNotification('Please select both origin and destination stations', 'error');
       return;
     }
 
@@ -809,7 +809,7 @@ const TariffManagement: React.FC = () => {
               {/* Origin Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Origin Country
+                  Origin Station
                 </label>
                 <div className="relative">
                   <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
@@ -834,7 +834,7 @@ const TariffManagement: React.FC = () => {
               {/* Destination Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Destination Country
+                  Destination Station
                 </label>
                 <div className="relative">
                   <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
@@ -1110,9 +1110,9 @@ const TariffManagement: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Origin Country
+                        Origin Station
                       </label>
-                      <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
+                      <p className="text-xs text-gray-500 mb-2">Type a custom station code or select from existing ones below</p>
                       <div className="space-y-2">
                         <input
                           type="text"
@@ -1148,9 +1148,9 @@ const TariffManagement: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Destination Country
+                        Destination Station
                       </label>
-                      <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
+                      <p className="text-xs text-gray-500 mb-2">Type a custom station code or select from existing ones below</p>
                       <div className="space-y-2">
                         <input
                           type="text"
@@ -1474,7 +1474,7 @@ const TariffManagement: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Origin Country
+                      Origin Station
                     </label>
                     <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
                     <div className="space-y-2">
@@ -1512,7 +1512,7 @@ const TariffManagement: React.FC = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Destination Country
+                      Destination Station
                     </label>
                     <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
                     <div className="space-y-2">
