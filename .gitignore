@@ -120,5 +120,5 @@ Screenshot*.png
 *.png:Zone.Identifier
 
 # Database files
-backend/data/shipments.db
-*.db
+# backend/data/shipments.db
+# *.db
