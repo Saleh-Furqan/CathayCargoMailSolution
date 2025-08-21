@@ -6,27 +6,26 @@ db = SQLAlchemy()
 class TariffRate(db.Model):
     """Model for storing tariff rates between countries/stations with goods category, postal service, and date ranges"""
     __tablename__ = 'tariff_rates'
-    # Removed unique constraint to allow same category in different time periods
     
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     
     # Route definition
-    origin_country = db.Column(db.String(100), nullable=False)  # Origin country/station
-    destination_country = db.Column(db.String(100), nullable=False)  # Destination country/station
+    origin_country = db.Column(db.String(100), nullable=False, index=True)  # Origin country/station
+    destination_country = db.Column(db.String(100), nullable=False, index=True)  # Destination country/station
     
     # Enhanced tariff classification
-    goods_category = db.Column(db.String(100), default='*')  # Goods category (e.g., 'Documents', 'Merchandise', '*' for all)
-    postal_service = db.Column(db.String(100), default='*')  # Postal service (e.g., 'EMS', 'E-packet', '*' for all)
+    goods_category = db.Column(db.String(100), default='*', index=True)  # Goods category (e.g., 'Documents', 'Merchandise', '*' for all)
+    postal_service = db.Column(db.String(100), default='*', index=True)  # Postal service (e.g., 'EMS', 'E-packet', '*' for all)
     
     # Date range for rate validity
-    start_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now().date())  # Rate validity start
-    end_date = db.Column(db.Date, nullable=False, default=lambda: datetime(2099, 12, 31).date())  # Rate validity end
+    start_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now().date(), index=True)  # Rate validity start
+    end_date = db.Column(db.Date, nullable=False, default=lambda: datetime(2099, 12, 31).date(), index=True)  # Rate validity end
     
     # Weight-based tariff fields
-    min_weight = db.Column(db.Float, default=0.0)  # Minimum weight for this rate
-    max_weight = db.Column(db.Float, default=999999.0)  # Maximum weight for this rate
+    min_weight = db.Column(db.Float, default=0.0, index=True)  # Minimum weight for this rate
+    max_weight = db.Column(db.Float, default=999999.0, index=True)  # Maximum weight for this rate
     
     # Tariff configuration
     tariff_rate = db.Column(db.Float, default=0.8)  # Base tariff rate (e.g., 0.8 = 80%)
@@ -36,8 +35,28 @@ class TariffRate(db.Model):
     
     # Additional metadata
     currency = db.Column(db.String(10), default='USD')
-    is_active = db.Column(db.Boolean, default=True)
+    is_active = db.Column(db.Boolean, default=True, index=True)
     notes = db.Column(db.Text)
+    
+    # Composite indexes for frequently used query patterns
+    __table_args__ = (
+        # Index for conflict checking queries (most common pattern)
+        db.Index('idx_route_category_service_active', 
+                'origin_country', 'destination_country', 'goods_category', 'postal_service', 'is_active'),
+        
+        # Index for date range queries  
+        db.Index('idx_date_range_active', 'start_date', 'end_date', 'is_active'),
+        
+        # Index for weight range queries
+        db.Index('idx_weight_range_active', 'min_weight', 'max_weight', 'is_active'),
+        
+        # Composite index for exact matching (used in upserts)
+        db.Index('idx_exact_match', 'origin_country', 'destination_country', 'goods_category', 
+                'postal_service', 'start_date', 'end_date', 'min_weight', 'max_weight'),
+        
+        # Index for active rates lookup
+        db.Index('idx_active_rates', 'is_active', 'origin_country', 'destination_country'),
+    )
     
     def validate_dates(self):
         """Validate date ranges"""
@@ -66,6 +85,7 @@ class TariffRate(db.Model):
         return query.all()
     
     @classmethod
+    @classmethod
     def check_weight_range_overlap(cls, origin_country, destination_country, goods_category, 
                                   postal_service, start_date, end_date, min_weight, max_weight, exclude_id=None):
         """Check for overlapping weight ranges for the same route/category/service/date combination"""
@@ -89,6 +109,93 @@ class TariffRate(db.Model):
             query = query.filter(cls.id != exclude_id)
             
         return query.all()
+    
+    @classmethod
+    def check_combined_conflicts(cls, origin_country, destination_country, goods_category, 
+                               postal_service, start_date, end_date, min_weight, max_weight, exclude_id=None):
+        """Optimized single query to check for all conflicts (date + weight range overlap)"""
+        query = cls.query.filter(
+            cls.origin_country == origin_country,
+            cls.destination_country == destination_country,
+            cls.goods_category == goods_category,
+            cls.postal_service == postal_service,
+            cls.is_active == True,
+            # Check for date overlap
+            cls.start_date <= end_date,
+            cls.end_date >= start_date,
+            # Check for weight range overlap
+            cls.min_weight <= max_weight,
+            cls.max_weight >= min_weight
+        )
+        
+        if exclude_id:
+            query = query.filter(cls.id != exclude_id)
+            
+        return query.all()
+    
+    @classmethod
+    def bulk_check_conflicts(cls, rate_definitions, exclude_ids=None):
+        """
+        Optimized bulk conflict checking for multiple rates at once.
+        rate_definitions: list of dicts with rate parameters
+        Returns: dict mapping index to list of conflicts
+        """
+        conflicts = {}
+        
+        if not rate_definitions:
+            return conflicts
+        
+        # Build a single complex OR query to check all definitions at once
+        from sqlalchemy import or_, and_
+        
+        conditions = []
+        for i, rate_def in enumerate(rate_definitions):
+            condition = and_(
+                cls.origin_country == rate_def['origin'],
+                cls.destination_country == rate_def['destination'], 
+                cls.goods_category == rate_def['goods_category'],
+                cls.postal_service == rate_def['postal_service'],
+                cls.is_active == True,
+                # Date overlap check
+                cls.start_date <= rate_def['end_date'],
+                cls.end_date >= rate_def['start_date'],
+                # Weight range overlap check
+                cls.min_weight <= rate_def['max_weight'],
+                cls.max_weight >= rate_def['min_weight']
+            )
+            conditions.append((i, condition))
+        
+        if not conditions:
+            return conflicts
+        
+        # Execute single query with OR of all conditions
+        or_condition = or_(*[cond for _, cond in conditions])
+        query = cls.query.filter(or_condition)
+        
+        if exclude_ids:
+            query = query.filter(~cls.id.in_(exclude_ids))
+        
+        all_conflicting_rates = query.all()
+        
+        # Map results back to original rate definitions
+        for i, rate_def in enumerate(rate_definitions):
+            rate_conflicts = []
+            for rate in all_conflicting_rates:
+                # Check if this rate conflicts with definition i
+                if (rate.origin_country == rate_def['origin'] and
+                    rate.destination_country == rate_def['destination'] and
+                    rate.goods_category == rate_def['goods_category'] and
+                    rate.postal_service == rate_def['postal_service'] and
+                    rate.start_date <= rate_def['end_date'] and
+                    rate.end_date >= rate_def['start_date'] and
+                    rate.min_weight <= rate_def['max_weight'] and
+                    rate.max_weight >= rate_def['min_weight']):
+                    rate_conflicts.append(rate)
+            
+            if rate_conflicts:
+                conflicts[i] = rate_conflicts
+        
+        return conflicts
     
     def validate_weight_range(self):
         """Validate weight range"""

@@ -10,7 +10,9 @@ import {
   AlertTriangle,
   CheckCircle,
   Calculator,
-  Plus
+  Plus,
+  Loader,
+  Trash2
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { formatDate } from '../utils/displayHelpers';
@@ -27,6 +29,7 @@ interface TariffRoute {
   end_date?: string;
   configured_rate?: TariffRateConfig;
   has_configured_rate: boolean;
+  loading?: boolean;
 }
 
 interface TariffRateConfig {
@@ -115,6 +118,9 @@ const TariffManagement: React.FC = () => {
   const [calculationResult, setCalculationResult] = useState<TariffCalculation | null>(null);
   const [availableCategories, setAvailableCategories] = useState<string[]>(['*']);
   const [availableServices, setAvailableServices] = useState<string[]>(['*']);
+  const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'info';
@@ -192,6 +198,7 @@ const TariffManagement: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      console.log('Fetching tariff data...');
       
       const [routesResponse, ratesResponse, defaultsResponse, categoriesResponse, servicesResponse] = await Promise.all([
         apiService.getTariffRoutes(),
@@ -203,6 +210,9 @@ const TariffManagement: React.FC = () => {
       
       const baseRoutes = routesResponse.routes || [];
       const configuredRatesData = ratesResponse.tariff_rates || [];
+      
+      console.log(`Fetched ${configuredRatesData.length} active tariff rates`);
+      console.log('Active rates:', configuredRatesData.map((rate: TariffRateConfig) => `ID: ${rate.id}, Route: ${rate.origin_country} → ${rate.destination_country}`));
       
       // Create a map of existing routes for quick lookup
       const existingRoutesMap = new Map();
@@ -399,19 +409,146 @@ const TariffManagement: React.FC = () => {
     setShowBulkForm(true);
   };
 
-  const handleDeactivateRate = async (rateId: number, route: string) => {
-    if (!window.confirm(`Are you sure you want to deactivate the tariff rate for ${route}?`)) {
+  const handleDeleteRate = async (rateId: number, route: string) => {
+    if (!window.confirm(`Are you sure you want to permanently delete the tariff rate for ${route}? This action cannot be undone.`)) {
       return;
     }
 
+    console.log(`Attempting to delete tariff rate ${rateId} for route ${route}`);
+
     try {
+      // Show loading state
+      const routeIndex = routes.findIndex(r => r.configured_rate?.id === rateId);
+      console.log(`Found route at index: ${routeIndex}`);
+      
+      if (routeIndex !== -1) {
+        const updatedRoutes = [...routes];
+        updatedRoutes[routeIndex] = { ...updatedRoutes[routeIndex], loading: true };
+        setRoutes(updatedRoutes);
+      }
+
+      // Show processing notification
+      showNotification(`Deleting tariff rate for ${route}...`, 'success');
+
+      console.log(`Calling API to delete rate ${rateId}`);
       await apiService.deleteTariffRate(rateId);
-      showNotification(`Tariff rate deactivated for ${route}`, 'success');
-      fetchData(); // Refresh data
+      console.log(`Successfully deleted rate ${rateId}`);
+      
+      // Refresh data and wait for completion
+      console.log('Refreshing data after delete');
+      await fetchData();
+      console.log('Data refresh completed');
+      
+      showNotification(`Tariff rate permanently deleted for ${route}`, 'success');
     } catch (error) {
-      console.error('Error deactivating tariff rate:', error);
-      showNotification(`Error deactivating tariff rate: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      console.error('Error deleting tariff rate:', error);
+      showNotification(`Error deleting tariff rate: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      
+      // Remove loading state on error
+      const routeIndex = routes.findIndex(r => r.configured_rate?.id === rateId);
+      if (routeIndex !== -1) {
+        const updatedRoutes = [...routes];
+        updatedRoutes[routeIndex] = { ...updatedRoutes[routeIndex], loading: false };
+        setRoutes(updatedRoutes);
+      }
     }
+  };
+
+  // Bulk selection handlers
+  const handleSelectRoute = (routeKey: string, checked: boolean) => {
+    const newSelection = new Set(selectedRoutes);
+    if (checked) {
+      newSelection.add(routeKey);
+    } else {
+      newSelection.delete(routeKey);
+    }
+    setSelectedRoutes(newSelection);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allRouteKeys = filteredRoutes.map(route => 
+        `${route.route}-${route.start_date}-${route.end_date}`
+      );
+      setSelectedRoutes(new Set(allRouteKeys));
+    } else {
+      setSelectedRoutes(new Set());
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedRoutes.size === 0) {
+      showNotification('Please select routes to delete', 'error');
+      return;
+    }
+    setShowBulkDeleteConfirm(true);
+  };
+
+  const confirmBulkDelete = async (forceDelete: boolean = false) => {
+    if (selectedRoutes.size === 0) return;
+
+    setBulkDeleteLoading(true);
+    try {
+      // Convert selected route keys back to route strings
+      const selectedRouteStrings = Array.from(selectedRoutes).map(routeKey => {
+        const route = filteredRoutes.find(r => 
+          `${r.route}-${r.start_date}-${r.end_date}` === routeKey
+        );
+        return route?.route;
+      }).filter(Boolean) as string[];
+
+      // Remove duplicates (multiple time periods for same route)
+      const uniqueRoutes = [...new Set(selectedRouteStrings)];
+
+      showNotification(`Deleting ${uniqueRoutes.length} routes...`, 'info');
+
+      const response = await apiService.bulkDeleteRoutes({
+        routes: uniqueRoutes,
+        force_delete: forceDelete,
+        reason: 'Bulk deletion from UI'
+      });
+
+      if (response.success) {
+        showNotification(
+          `Successfully deleted ${response.deleted_count} rates across ${response.routes_processed} routes`, 
+          'success'
+        );
+        
+        // Clear selection and refresh data
+        setSelectedRoutes(new Set());
+        setShowBulkDeleteConfirm(false);
+        await fetchData();
+      } else {
+        throw new Error(response.error || 'Bulk deletion failed');
+      }
+    } catch (error: any) {
+      console.error('Bulk delete error:', error);
+      
+      // Check if it's a usage conflict error
+      if (error.message?.includes('referenced by processed shipments') || 
+          (error.response?.data?.rates_with_usage && !forceDelete)) {
+        const errorData = error.response?.data;
+        const usageCount = errorData?.total_usage_count || 0;
+        const ratesWithUsage = errorData?.rates_with_usage || 0;
+        
+        showNotification(
+          `Cannot delete: ${ratesWithUsage} rates are referenced by ${usageCount} shipments. Use force delete to override.`,
+          'error'
+        );
+        
+        // Don't close the dialog so user can choose force delete
+        setBulkDeleteLoading(false);
+        return;
+      }
+      
+      showNotification(
+        `Error during bulk deletion: ${error.message || 'Unknown error'}`, 
+        'error'
+      );
+      setShowBulkDeleteConfirm(false);
+    }
+    
+    setBulkDeleteLoading(false);
   };
 
   const handleCalculateTariff = async () => {
@@ -468,7 +605,7 @@ const TariffManagement: React.FC = () => {
 
     // Validation
     if (!bulkRateConfig.origin || !bulkRateConfig.destination) {
-      showNotification('Please select both origin and destination countries', 'error');
+      showNotification('Please select both origin and destination stations', 'error');
       return;
     }
 
@@ -809,7 +946,7 @@ const TariffManagement: React.FC = () => {
               {/* Origin Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Origin Country
+                  Origin Station
                 </label>
                 <div className="relative">
                   <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
@@ -834,7 +971,7 @@ const TariffManagement: React.FC = () => {
               {/* Destination Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Destination Country
+                  Destination Station
                 </label>
                 <div className="relative">
                   <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
@@ -977,11 +1114,56 @@ const TariffManagement: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <>
+            {/* Bulk Actions Bar */}
+            {selectedRoutes.size > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium text-blue-900">
+                      {selectedRoutes.size} route{selectedRoutes.size !== 1 ? 's' : ''} selected
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleBulkDelete}
+                        disabled={bulkDeleteLoading}
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed"
+                      >
+                        {bulkDeleteLoading ? (
+                          <Loader className="w-4 h-4 mr-1 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 mr-1" />
+                        )}
+                        Delete Selected Routes
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedRoutes(new Set())}
+                    className="text-blue-600 hover:text-blue-800 text-sm"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedRoutes.size > 0 && selectedRoutes.size === filteredRoutes.length}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        className="h-4 w-4 text-cathay-teal focus:ring-cathay-teal border-gray-300 rounded"
+                      />
+                      <span>Select</span>
+                    </div>
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <div className="flex items-center gap-2">
                       <Globe className="h-4 w-4" />
@@ -1012,8 +1194,18 @@ const TariffManagement: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredRoutes.map((route, routeIndex) => (
-                  <tr key={`${route.route}-${route.start_date}-${route.end_date}`} className={routeIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                {filteredRoutes.map((route, routeIndex) => {
+                  const routeKey = `${route.route}-${route.start_date}-${route.end_date}`;
+                  return (
+                  <tr key={routeKey} className={routeIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={selectedRoutes.has(routeKey)}
+                        onChange={(e) => handleSelectRoute(routeKey, e.target.checked)}
+                        className="h-4 w-4 text-cathay-teal focus:ring-cathay-teal border-gray-300 rounded"
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div>
@@ -1077,19 +1269,27 @@ const TariffManagement: React.FC = () => {
                       </button>
                       {route.configured_rate && (
                         <button
-                          onClick={() => handleDeactivateRate(route.configured_rate!.id, route.route)}
-                          className="text-red-600 hover:text-red-800"
+                          onClick={() => handleDeleteRate(route.configured_rate!.id, route.route)}
+                          disabled={route.loading}
+                          className={`text-red-600 hover:text-red-800 disabled:text-gray-400 disabled:cursor-not-allowed`}
+                          title={route.loading ? "Deleting..." : "Delete tariff rate"}
                         >
-                          <X className="h-4 w-4" />
+                          {route.loading ? (
+                            <Loader className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4" />
+                          )}
                         </button>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+        </>
         )}
 
         {/* Bulk Rate Configuration Modal */}
@@ -1110,9 +1310,9 @@ const TariffManagement: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Origin Country
+                        Origin Station
                       </label>
-                      <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
+                      <p className="text-xs text-gray-500 mb-2">Type a custom station code or select from existing ones below</p>
                       <div className="space-y-2">
                         <input
                           type="text"
@@ -1148,9 +1348,9 @@ const TariffManagement: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Destination Country
+                        Destination Station
                       </label>
-                      <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
+                      <p className="text-xs text-gray-500 mb-2">Type a custom station code or select from existing ones below</p>
                       <div className="space-y-2">
                         <input
                           type="text"
@@ -1474,7 +1674,7 @@ const TariffManagement: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Origin Country
+                      Origin Station
                     </label>
                     <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
                     <div className="space-y-2">
@@ -1512,7 +1712,7 @@ const TariffManagement: React.FC = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Destination Country
+                      Destination Station
                     </label>
                     <p className="text-xs text-gray-500 mb-2">Type a custom country code or select from existing ones below</p>
                     <div className="space-y-2">
@@ -1813,6 +2013,75 @@ const TariffManagement: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Bulk Delete Confirmation Modal */}
+        {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-lg mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Confirm Bulk Route Deletion
+              </h3>
+              
+              <p className="text-sm text-gray-600 mb-4">
+                Are you sure you want to delete <strong>{selectedRoutes.size} selected routes</strong>? 
+                This will permanently remove all tariff rates for these routes.
+              </p>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <div className="flex">
+                  <AlertTriangle className="h-5 w-5 text-yellow-400 mt-0.5" />
+                  <div className="ml-3">
+                    <h4 className="text-sm font-medium text-yellow-800">
+                      Warning
+                    </h4>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      This action cannot be undone. If rates are referenced by processed shipments, 
+                      the deletion may be blocked unless you force delete.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowBulkDeleteConfirm(false);
+                    setBulkDeleteLoading(false);
+                  }}
+                  disabled={bulkDeleteLoading}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => confirmBulkDelete(false)}
+                  disabled={bulkDeleteLoading}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:bg-red-400 flex items-center gap-2"
+                >
+                  {bulkDeleteLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  Delete Routes
+                </button>
+                <button
+                  onClick={() => confirmBulkDelete(true)}
+                  disabled={bulkDeleteLoading}
+                  className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 disabled:bg-orange-400 flex items-center gap-2"
+                >
+                  {bulkDeleteLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  Force Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </>
   );

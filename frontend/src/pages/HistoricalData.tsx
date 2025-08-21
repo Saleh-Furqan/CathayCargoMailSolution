@@ -116,7 +116,7 @@ const HistoricalData: React.FC = () => {
         apiService.getAnalytics(startDate, endDate, filters)
       ]);
       
-      // Format data using NEW CNP+IODA backend structure - NO FRONTEND PROCESSING
+      // Format data using NEW PS+IODA backend structure - NO FRONTEND PROCESSING
       const formattedData = historyResponse.data.map((item: any) => ({
         id: item.id, // Database ID for deletion
         
@@ -149,7 +149,7 @@ const HistoricalData: React.FC = () => {
         'Number of Packets': item.number_of_packets || '',
         'Tariff Amount': item.tariff_amount || '',
         
-        // CBD export fields (computed by backend)
+        // GOV export fields (computed by backend)
         'Carrier Code': item.carrier_code || '',
         'Flight/Trip Number': item.flight_trip_number || '',
         'Arrival Port Code': item.arrival_port_code || '',
@@ -190,7 +190,7 @@ const HistoricalData: React.FC = () => {
   const handleGenerateChinaPost = async () => {
     if (!historicalData.length) {
       setNotification({
-        message: 'No data available to generate China Post file',
+        message: 'No data available to generate Postal Service file',
         type: 'warning'
       });
       return;
@@ -212,15 +212,15 @@ const HistoricalData: React.FC = () => {
 
       // Backend generates file directly from database with filters applied
       const blob = await apiService.generateChinaPostFile(filters);
-      downloadBlob(blob, `china_post_filtered_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      downloadBlob(blob, `postal_service_filtered_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
-        message: 'China Post file generated successfully with current filters',
+        message: 'Postal Service file generated successfully with current filters',
         type: 'success'
       });
     } catch (error) {
       console.error('Error generating China Post file:', error);
       setNotification({
-        message: `Error generating China Post file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Error generating Postal Service file: ${error instanceof Error ? error.message : 'Unknown error'}`,
         type: 'error'
       });
     }
@@ -229,7 +229,7 @@ const HistoricalData: React.FC = () => {
   const handleGenerateCBP = async () => {
     if (!historicalData.length) {
       setNotification({
-        message: 'No data available to generate CBP file',
+        message: 'No data available to generate GOV file',
         type: 'warning'
       });
       return;
@@ -251,15 +251,15 @@ const HistoricalData: React.FC = () => {
 
       // Backend generates file directly from database with filters applied
       const blob = await apiService.generateCBDFile(filters);
-      downloadBlob(blob, `cbp_filtered_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+      downloadBlob(blob, `gov_filtered_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
       setNotification({
-        message: 'CBP file generated successfully with current filters',
+        message: 'GOV file generated successfully with current filters',
         type: 'success'
       });
     } catch (error) {
       console.error('Error generating CBP file:', error);
       setNotification({
-        message: `Error generating CBP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Error generating GOV file: ${error instanceof Error ? error.message : 'Unknown error'}`,
         type: 'error'
       });
     }
@@ -330,8 +330,8 @@ const HistoricalData: React.FC = () => {
   const tabs = [
     { id: 'overview', name: 'Overview', icon: Search },
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
-    { id: 'cbp', name: 'CBP Report', icon: Building },
-    { id: 'china-post', name: 'China Post', icon: Plane },
+    { id: 'cbp', name: 'GOV Report', icon: Building },
+    { id: 'china-post', name: 'Postal Service', icon: Plane },
   ];
 
   return (
@@ -581,7 +581,7 @@ const HistoricalData: React.FC = () => {
                         Tariff & Packets
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        CBD Fields
+                        GOV Fields
                       </th>
                     </tr>
                   </thead>

@@ -308,6 +308,54 @@ class ApiService {
     return response.json();
   }
 
+  async bulkDeleteRoutes(data: {
+    routes: string[];
+    force_delete?: boolean;
+    reason?: string;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/tariff-routes/bulk-delete`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const error = new Error(result.error || 'Failed to bulk delete routes');
+      (error as any).response = { data: result };
+      throw error;
+    }
+
+    return result;
+  }
+
+  async bulkDeleteTariffRates(data: {
+    rate_ids: number[];
+    force_delete?: boolean;
+    reason?: string;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/tariff-rates/bulk-delete`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      const error = new Error(result.error || 'Failed to bulk delete tariff rates');
+      (error as any).response = { data: result };
+      throw error;
+    }
+
+    return result;
+  }
+
   async calculateTariff(origin: string, destination: string, declaredValue: number, 
                        weight?: number, goodsCategory?: string, postalService?: string, shipDate?: string) {
     const response = await fetch(`${API_BASE_URL}/calculate-tariff`, {

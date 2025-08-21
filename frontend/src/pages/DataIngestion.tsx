@@ -145,8 +145,8 @@ const DataIngestion: React.FC = () => {
         f.id === fileId ? { ...f, status: 'processing' as const } : f
       ));
 
-      // Check if this is a CNP raw data file and process accordingly
-      console.log('Processing CNP raw data file...');
+      // Check if this is a PS raw data file and process accordingly
+      console.log('Processing PS raw data file...');
       console.log('Calling apiService.uploadCNPFile...');
       
       const result = await apiService.uploadCNPFile(file);
@@ -324,7 +324,7 @@ const DataIngestion: React.FC = () => {
       // For the new workflow, we need to process the file again to generate the output
       // This could be optimized by storing the file data or processed results
       setNotification({
-        message: 'Generating Internal Use file... This may take a moment.',
+        message: 'Generating Postal Service file... This may take a moment.',
         type: 'info'
       });
 
@@ -335,15 +335,15 @@ const DataIngestion: React.FC = () => {
         if (files && files.length > 0) {
           try {
             const blob = await apiService.generateChinaPostFile();
-            downloadBlob(blob, `internal_use_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+            downloadBlob(blob, `postal_service_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
             setNotification({
-              message: 'Internal Use file generated successfully',
+              message: 'Postal Service file generated successfully',
               type: 'success'
             });
           } catch (error) {
-            console.error('Error generating Internal Use file:', error);
+            console.error('Error generating Postal Service file:', error);
             setNotification({
-              message: `Error generating Internal Use file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              message: `Error generating Postal Service file: ${error instanceof Error ? error.message : 'Unknown error'}`,
               type: 'error'
             });
           }
@@ -353,9 +353,9 @@ const DataIngestion: React.FC = () => {
       fileInput.click();
       
     } catch (error) {
-      console.error('Error generating China Post file:', error);
+      console.error('Error generating Postal Service file:', error);
       setNotification({
-        message: `Error generating China Post file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Error generating Postal Service file: ${error instanceof Error ? error.message : 'Unknown error'}`,
         type: 'error'
       });
     }
@@ -377,7 +377,7 @@ const DataIngestion: React.FC = () => {
       fileInput.accept = '.xlsx,.xls';
       
       setNotification({
-        message: 'Generating CBP file... This may take a moment.',
+        message: 'Generating GOV file... This may take a moment.',
         type: 'info'
       });
 
@@ -386,15 +386,15 @@ const DataIngestion: React.FC = () => {
         if (files && files.length > 0) {
           try {
             const blob = await apiService.generateCBPFile();
-            downloadBlob(blob, `cbp_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
+            downloadBlob(blob, `gov_output_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`);
             setNotification({
-              message: 'CBP file generated successfully',
+              message: 'GOV file generated successfully',
               type: 'success'
             });
           } catch (error) {
-            console.error('Error generating CBP file:', error);
+            console.error('Error generating GOV file:', error);
             setNotification({
-              message: `Error generating CBP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              message: `Error generating GOV file: ${error instanceof Error ? error.message : 'Unknown error'}`,
               type: 'error'
             });
           }
@@ -404,9 +404,9 @@ const DataIngestion: React.FC = () => {
       fileInput.click();
       
     } catch (error) {
-      console.error('Error generating CBP file:', error);
+      console.error('Error generating GOV file:', error);
       setNotification({
-        message: `Error generating CBP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Error generating GOV file: ${error instanceof Error ? error.message : 'Unknown error'}`,
         type: 'error'
       });
     }
@@ -415,8 +415,8 @@ const DataIngestion: React.FC = () => {
   const tabs = [
     { id: 'upload', name: 'Data Upload', icon: Upload },
     { id: 'dashboard', name: 'Analytics', icon: BarChart3, disabled: !processResult },
-    { id: 'cbp', name: 'CBP Section', icon: Building, disabled: !processResult?.results?.cbp?.available && !processResult?.results?.internal_use?.available },
-    { id: 'china-post', name: 'China Post', icon: Plane, disabled: !processResult?.results?.china_post?.available && !processResult?.results?.internal_use?.available },
+    { id: 'cbp', name: 'GOV Section', icon: Building, disabled: !processResult?.results?.cbp?.available && !processResult?.results?.internal_use?.available },
+    { id: 'china-post', name: 'Postal Service', icon: Plane, disabled: !processResult?.results?.china_post?.available && !processResult?.results?.internal_use?.available },
   ];
 
   // Add error boundary handling
@@ -460,7 +460,7 @@ const DataIngestion: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Mail Processing System</h1>
           <div className="mt-1 flex items-center space-x-4">
             <p className="text-gray-600">
-              Complete solution for China Post and CBP data processing with analytics
+              Complete solution for Postal Service and GOV data processing with analytics
             </p>
             <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium ${
               isBackendConnected 
@@ -532,7 +532,7 @@ const DataIngestion: React.FC = () => {
                   : 'Drag & drop files here, or click to select'}
               </p>
               <p className="text-sm text-gray-500">
-                Upload CNP raw data file (Excel format with "Raw data provided by CNP" sheet only)
+                Upload PS raw data file (Excel format with "Raw data provided by PS" sheet only)
                 <br />
                 <span className="text-xs text-blue-600">Note: Upload the entire Excel file - the system will automatically process the first sheet</span>
               </p>
@@ -555,7 +555,7 @@ const DataIngestion: React.FC = () => {
                       : 'bg-red-100 border border-red-200'
                   }`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">Internal Use Output</span>
+                      <span className="text-xs font-medium">Postal Service Output</span>
                       {(processResult.results.internal_use?.available || processResult.results.china_post?.available) ? (
                         <CheckCircle className="h-4 w-4 text-green-600" />
                       ) : (
@@ -574,7 +574,7 @@ const DataIngestion: React.FC = () => {
                       : 'bg-red-100 border border-red-200'
                   }`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">CBP Output</span>
+                      <span className="text-xs font-medium">GOV Output</span>
                       {processResult.results.cbp?.available ? (
                         <CheckCircle className="h-4 w-4 text-green-600" />
                       ) : (
@@ -595,9 +595,9 @@ const DataIngestion: React.FC = () => {
             <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <h3 className="text-sm font-semibold text-blue-900 mb-3">New Data Processing Workflow</h3>
               <div className="text-xs text-blue-800 space-y-2">
-                <p>• Upload the CNP raw data file (Excel format with "Raw data provided by CNP" sheet)</p>
-                <p>• The system will automatically merge it with IODA China Post data</p>
-                <p>• Generate both internal use and CBP output files in the correct format</p>
+                <p>• Upload the PS raw data file (Excel format with "Raw data provided by PS" sheet)</p>
+                <p>• The system will automatically merge it with IODA Postal Service data</p>
+                <p>• Generate both internal use and GOV output files in the correct format</p>
                 <p>• No need to manually format or merge data - everything is automated!</p>
               </div>
             </div>
@@ -812,7 +812,7 @@ const DataIngestion: React.FC = () => {
         <Dashboard data={processedData} analyticsData={null} processResult={processResult} />
       )}
 
-      {/* CBP Tab */}
+      {/* GOV Tab */}
       {activeTab === 'cbp' && (
         <CBPSection 
           data={processedData} 
@@ -821,7 +821,7 @@ const DataIngestion: React.FC = () => {
         />
       )}
 
-      {/* China Post Tab */}
+      {/* Postal Service Tab */}
       {activeTab === 'china-post' && (
         <ChinaPostSection 
           data={processedData} 

@@ -924,270 +924,305 @@ def get_tariff_rates():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/tariff-rates', methods=['POST'])
-def create_tariff_rate():
-    """Create or update a tariff rate for a route"""
+def _validate_tariff_rate_data(data):
+    """Centralized validation for tariff rate data"""
+    origin = data.get('origin_country')
+    destination = data.get('destination_country')
+    
+    if not origin or not destination:
+        return {'error': 'Origin and destination countries are required'}, 400
+    
+    # Parse and validate dates
+    from datetime import datetime, date
+    try:
+        start_date = datetime.strptime(data.get('start_date'), '%Y-%m-%d').date() if data.get('start_date') else date.today()
+        end_date = datetime.strptime(data.get('end_date'), '%Y-%m-%d').date() if data.get('end_date') else date(2099, 12, 31)
+    except (ValueError, TypeError) as e:
+        return {'error': f'Invalid date format: {str(e)}'}, 400
+    
+    if start_date >= end_date:
+        return {'error': 'Start date must be before end date'}, 400
+    
+    # Validate weight range
+    try:
+        min_weight = float(data.get('min_weight', 0.0))
+        max_weight = float(data.get('max_weight', 999999.0))
+    except (ValueError, TypeError):
+        return {'error': 'Invalid weight values'}, 400
+    
+    if min_weight < 0 or max_weight < 0:
+        return {'error': 'Weight values cannot be negative'}, 400
+    if min_weight > max_weight:
+        return {'error': 'Minimum weight cannot be greater than maximum weight'}, 400
+    
+    # Validate required tariff rate
+    tariff_rate = data.get('tariff_rate')
+    if tariff_rate is None:
+        return {'error': 'tariff_rate is required'}, 400
+    
+    try:
+        tariff_rate = float(tariff_rate)
+    except (ValueError, TypeError):
+        return {'error': 'Invalid tariff_rate value'}, 400
+    
+    return {
+        'origin': origin,
+        'destination': destination,
+        'goods_category': data.get('goods_category', '*'),
+        'postal_service': data.get('postal_service', '*'),
+        'start_date': start_date,
+        'end_date': end_date,
+        'min_weight': min_weight,
+        'max_weight': max_weight,
+        'tariff_rate': tariff_rate,
+        'category_surcharge': float(data.get('category_surcharge', 0.0)),
+        'minimum_tariff': float(data.get('minimum_tariff', 0.0)),
+        'maximum_tariff': float(data.get('maximum_tariff')) if data.get('maximum_tariff') else None,
+        'currency': data.get('currency', 'USD'),
+        'is_active': data.get('is_active', True),
+        'notes': data.get('notes', '')
+    }, None
+
+def _check_rate_conflicts(validated_data, exclude_id=None):
+    """Centralized conflict checking - uses optimized single query"""
+    # Use the new optimized method from the model
+    conflicting_rates = TariffRate.check_combined_conflicts(
+        validated_data['origin'],
+        validated_data['destination'], 
+        validated_data['goods_category'],
+        validated_data['postal_service'],
+        validated_data['start_date'],
+        validated_data['end_date'],
+        validated_data['min_weight'],
+        validated_data['max_weight'],
+        exclude_id=exclude_id
+    )
+    
+    if conflicting_rates:
+        conflict_info = [{
+            'id': rate.id,
+            'start_date': rate.start_date.isoformat(),
+            'end_date': rate.end_date.isoformat(),
+            'min_weight': rate.min_weight,
+            'max_weight': rate.max_weight,
+            'rate': rate.tariff_rate
+        } for rate in conflicting_rates]
+        
+        return {'error': 'Rate conflicts with existing rates (date/weight range overlap)', 'conflicting_rates': conflict_info}, 400
+    
+    return None, None
+
+def _create_or_update_rate(validated_data, existing_rate=None):
+    """Create new rate or update existing one"""
+    if existing_rate:
+        # Update existing rate
+        for key, value in validated_data.items():
+            # Map keys to model attributes
+            if key == 'origin':
+                existing_rate.origin_country = value
+            elif key == 'destination':
+                existing_rate.destination_country = value
+            elif hasattr(existing_rate, key):
+                setattr(existing_rate, key, value)
+        existing_rate.updated_at = datetime.now()
+        return existing_rate, False
+    else:
+        # Create new rate - map keys to model attributes
+        rate_data = {}
+        for key, value in validated_data.items():
+            if key == 'origin':
+                rate_data['origin_country'] = value
+            elif key == 'destination':
+                rate_data['destination_country'] = value
+            else:
+                rate_data[key] = value
+                
+        new_rate = TariffRate(**rate_data)
+        db.session.add(new_rate)
+        return new_rate, True
+
+@app.route('/tariff-rates/single', methods=['POST'])
+def create_single_tariff_rate():
+    """Create a single tariff rate that applies to all categories for a route"""
     try:
         data = request.json or {}
-        origin = data.get('origin_country')
-        destination = data.get('destination_country')
-        goods_category = data.get('goods_category', '*')
-        postal_service = data.get('postal_service', '*')
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
         
-        if not origin or not destination:
-            return jsonify({'error': 'Origin and destination countries are required'}), 400
+        # Validate input data - force goods_category to '*' for single rates
+        data['goods_category'] = '*'  # Wildcard means applies to all categories
         
-        # Parse dates
-        from datetime import datetime, date
-        if start_date:
-            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-        else:
-            start_date = date.today()
+        validated_data, error = _validate_tariff_rate_data(data)
+        if error:
+            return jsonify(validated_data), error
         
-        if end_date:
-            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-        else:
-            end_date = date(2099, 12, 31)
-        
-        if start_date >= end_date:
-            return jsonify({'error': 'Start date must be before end date'}), 400
-        
-        # Get weight range
-        min_weight = data.get('min_weight', 0.0)
-        max_weight = data.get('max_weight', 999999.0)
-        
-        # Validate weight range
-        if min_weight < 0 or max_weight < 0:
-            return jsonify({'error': 'Weight values cannot be negative'}), 400
-        if min_weight > max_weight:
-            return jsonify({'error': 'Minimum weight cannot be greater than maximum weight'}), 400
-        
-        # Check for overlapping weight ranges
-        overlapping_weight_rates = TariffRate.check_weight_range_overlap(
-            origin, destination, goods_category, postal_service, start_date, end_date, min_weight, max_weight
-        )
-        
-        if overlapping_weight_rates:
-            overlapping_info = []
-            for rate in overlapping_weight_rates:
-                overlapping_info.append({
-                    'id': rate.id,
-                    'start_date': rate.start_date.isoformat(),
-                    'end_date': rate.end_date.isoformat(),
-                    'min_weight': rate.min_weight,
-                    'max_weight': rate.max_weight,
-                    'rate': rate.tariff_rate
-                })
-            return jsonify({
-                'error': 'Weight range overlaps with existing rates for the same date and route',
-                'overlapping_rates': overlapping_info
-            }), 400
-        
-        # Check for overlapping rates (legacy check for backward compatibility)
-        overlapping_rates = TariffRate.check_overlapping_rates(
-            origin, destination, goods_category, postal_service, start_date, end_date
-        )
-        
-        if overlapping_rates:
-            overlapping_info = []
-            for rate in overlapping_rates:
-                overlapping_info.append({
-                    'id': rate.id,
-                    'start_date': rate.start_date.isoformat(),
-                    'end_date': rate.end_date.isoformat(),
-                    'rate': rate.tariff_rate
-                })
-            return jsonify({
-                'error': 'Date range overlaps with existing rates',
-                'overlapping_rates': overlapping_info
-            }), 400
-        
-        # Check if rate already exists for this specific combination (including weight range)
+        # Check for existing exact match first
         existing_rate = TariffRate.query.filter_by(
-            origin_country=origin,
-            destination_country=destination,
-            goods_category=goods_category,
-            postal_service=postal_service,
-            start_date=start_date,
-            end_date=end_date,
-            min_weight=min_weight,
-            max_weight=max_weight
+            origin_country=validated_data['origin'],
+            destination_country=validated_data['destination'],
+            goods_category=validated_data['goods_category'],  # This will be '*'
+            postal_service=validated_data['postal_service'],
+            start_date=validated_data['start_date'],
+            end_date=validated_data['end_date'],
+            min_weight=validated_data['min_weight'],
+            max_weight=validated_data['max_weight']
         ).first()
         
-        if existing_rate:
-            # Update existing rate
-            existing_rate.tariff_rate = data.get('tariff_rate', existing_rate.tariff_rate)
-            existing_rate.category_surcharge = data.get('category_surcharge', existing_rate.category_surcharge)
-            existing_rate.minimum_tariff = data.get('minimum_tariff', existing_rate.minimum_tariff)
-            existing_rate.maximum_tariff = data.get('maximum_tariff', existing_rate.maximum_tariff)
-            existing_rate.min_weight = data.get('min_weight', existing_rate.min_weight)
-            existing_rate.max_weight = data.get('max_weight', existing_rate.max_weight)
-            existing_rate.currency = data.get('currency', existing_rate.currency)
-            existing_rate.is_active = data.get('is_active', existing_rate.is_active)
-            existing_rate.notes = data.get('notes', existing_rate.notes)
-            existing_rate.updated_at = datetime.now()
-            
-            db.session.commit()
-            
-            return jsonify({
-                'message': 'Tariff rate updated successfully',
-                'tariff_rate': existing_rate.to_dict()
-            })
-        else:
-            # Validate required fields
-            tariff_rate = data.get('tariff_rate')
-            if tariff_rate is None:
-                return jsonify({'error': 'tariff_rate is required'}), 400
-                
-            # Create new rate
-            new_rate = TariffRate()
-            new_rate.origin_country = origin
-            new_rate.destination_country = destination
-            new_rate.goods_category = goods_category
-            new_rate.postal_service = postal_service
-            new_rate.start_date = start_date
-            new_rate.end_date = end_date
-            new_rate.min_weight = min_weight
-            new_rate.max_weight = max_weight
-            new_rate.tariff_rate = tariff_rate
-            new_rate.category_surcharge = data.get('category_surcharge', 0.0) if data else 0.0
-            new_rate.minimum_tariff = data.get('minimum_tariff', 0.0) if data else 0.0
-            new_rate.maximum_tariff = data.get('maximum_tariff') if data else None
-            new_rate.currency = data.get('currency', 'USD') if data else 'USD'
-            new_rate.is_active = data.get('is_active', True) if data else True
-            new_rate.notes = data.get('notes', '') if data else ''
-            
-            db.session.add(new_rate)
-            db.session.commit()
-            
-            return jsonify({
-                'message': 'Tariff rate created successfully',
-                'tariff_rate': new_rate.to_dict()
-            }), 201
+        # Check for conflicts only if not updating exact match
+        if not existing_rate:
+            conflict_result, conflict_error = _check_rate_conflicts(validated_data)
+            if conflict_error:
+                return jsonify(conflict_result), conflict_error
         
+        # Create or update rate
+        rate, is_new = _create_or_update_rate(validated_data, existing_rate)
+        
+        # Single commit
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'Single tariff rate {"created" if is_new else "updated"} successfully',
+            'tariff_rate': rate.to_dict(),
+            'applies_to': 'all_categories',
+            'note': 'This rate applies to all goods categories for this route'
+        }), 201 if is_new else 200
+        
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': f'Invalid data format: {str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tariff-rates', methods=['POST'])
+def create_tariff_rate():
+    """Create or update a tariff rate for a route - Optimized version"""
+    try:
+        data = request.json or {}
+        
+        # Validate input data
+        validated_data, error = _validate_tariff_rate_data(data)
+        if error:
+            return jsonify(validated_data), error
+        
+        # Check for existing exact match first
+        existing_rate = TariffRate.query.filter_by(
+            origin_country=validated_data['origin'],
+            destination_country=validated_data['destination'],
+            goods_category=validated_data['goods_category'],
+            postal_service=validated_data['postal_service'],
+            start_date=validated_data['start_date'],
+            end_date=validated_data['end_date'],
+            min_weight=validated_data['min_weight'],
+            max_weight=validated_data['max_weight']
+        ).first()
+        
+        # Check for conflicts only if not updating exact match
+        if not existing_rate:
+            conflict_result, conflict_error = _check_rate_conflicts(validated_data)
+            if conflict_error:
+                return jsonify(conflict_result), conflict_error
+        
+        # Create or update rate
+        rate, is_new = _create_or_update_rate(validated_data, existing_rate)
+        
+        # Single commit
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'Tariff rate {"created" if is_new else "updated"} successfully',
+            'tariff_rate': rate.to_dict()
+        }), 201 if is_new else 200
+        
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': f'Invalid data format: {str(e)}'}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/tariff-rates/<int:rate_id>', methods=['PUT'])
 def update_tariff_rate(rate_id):
-    """Update a specific tariff rate"""
+    """Update a specific tariff rate - Optimized version"""
     try:
-        tariff_rate = TariffRate.query.get(rate_id)
-        if not tariff_rate:
+        rate = TariffRate.query.get(rate_id)
+        if not rate:
             return jsonify({'error': 'Tariff rate not found'}), 404
         
-        data = request.json or {} or {}
+        data = request.json or {}
         
-        # Check if classification fields are being updated
-        origin = data.get('origin_country', tariff_rate.origin_country)
-        destination = data.get('destination_country', tariff_rate.destination_country)
-        goods_category = data.get('goods_category', tariff_rate.goods_category)
-        postal_service = data.get('postal_service', tariff_rate.postal_service)
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
+        # Merge existing data with updates for validation
+        update_data = {
+            'origin_country': data.get('origin_country', rate.origin_country),
+            'destination_country': data.get('destination_country', rate.destination_country),
+            'goods_category': data.get('goods_category', rate.goods_category),
+            'postal_service': data.get('postal_service', rate.postal_service),
+            'start_date': data.get('start_date', rate.start_date.isoformat() if rate.start_date else None),
+            'end_date': data.get('end_date', rate.end_date.isoformat() if rate.end_date else None),
+            'min_weight': data.get('min_weight', rate.min_weight),
+            'max_weight': data.get('max_weight', rate.max_weight),
+            'tariff_rate': data.get('tariff_rate', rate.tariff_rate),
+            'category_surcharge': data.get('category_surcharge', rate.category_surcharge),
+            'minimum_tariff': data.get('minimum_tariff', rate.minimum_tariff),
+            'maximum_tariff': data.get('maximum_tariff', rate.maximum_tariff),
+            'currency': data.get('currency', rate.currency),
+            'is_active': data.get('is_active', rate.is_active),
+            'notes': data.get('notes', rate.notes)
+        }
         
-        # Parse dates if provided
-        from datetime import datetime as dt, date
-        if start_date:
-            try:
-                start_date = dt.strptime(start_date, '%Y-%m-%d').date()
-            except:
-                start_date = tariff_rate.start_date
-        else:
-            start_date = tariff_rate.start_date
-            
-        if end_date:
-            try:
-                end_date = dt.strptime(end_date, '%Y-%m-%d').date()
-            except:
-                end_date = tariff_rate.end_date
-        else:
-            end_date = tariff_rate.end_date
+        # Validate input data
+        validated_data, error = _validate_tariff_rate_data(update_data)
+        if error:
+            return jsonify(validated_data), error
         
-        # Validate dates
-        if start_date >= end_date:
-            return jsonify({'error': 'Start date must be before end date'}), 400
+        # Check for conflicts with other rates (excluding current rate)
+        conflict_result, conflict_error = _check_rate_conflicts(validated_data, exclude_id=rate_id)
+        if conflict_error:
+            return jsonify(conflict_result), conflict_error
         
-        # Get weight range values
-        min_weight = data.get('min_weight', tariff_rate.min_weight)
-        max_weight = data.get('max_weight', tariff_rate.max_weight)
+        # Update the rate
+        updated_rate, _ = _create_or_update_rate(validated_data, rate)
         
-        # Validate weight range
-        if min_weight < 0 or max_weight < 0:
-            return jsonify({'error': 'Weight values cannot be negative'}), 400
-        if min_weight > max_weight:
-            return jsonify({'error': 'Minimum weight cannot be greater than maximum weight'}), 400
-        
-        # Check for overlapping weight ranges (excluding this rate)
-        overlapping_weight_rates = TariffRate.check_weight_range_overlap(
-            origin, destination, goods_category, postal_service, start_date, end_date, 
-            min_weight, max_weight, exclude_id=rate_id
-        )
-        
-        if overlapping_weight_rates:
-            overlapping_info = []
-            for rate in overlapping_weight_rates:
-                overlapping_info.append({
-                    'id': rate.id,
-                    'start_date': rate.start_date.isoformat(),
-                    'end_date': rate.end_date.isoformat(),
-                    'min_weight': rate.min_weight,
-                    'max_weight': rate.max_weight,
-                    'tariff_rate': rate.tariff_rate
-                })
-            return jsonify({
-                'error': 'Updated weight and date ranges would overlap with existing rates',
-                'overlapping_rates': overlapping_info,
-                'message': 'Please adjust the weight range or date range to avoid conflicts with existing rates.'
-            }), 400
-        
-        # Update all fields
-        tariff_rate.origin_country = origin
-        tariff_rate.destination_country = destination
-        tariff_rate.goods_category = goods_category
-        tariff_rate.postal_service = postal_service
-        tariff_rate.start_date = start_date
-        tariff_rate.end_date = end_date
-        tariff_rate.min_weight = min_weight
-        tariff_rate.max_weight = max_weight
-        tariff_rate.tariff_rate = data.get('tariff_rate', tariff_rate.tariff_rate)
-        tariff_rate.category_surcharge = data.get('category_surcharge', tariff_rate.category_surcharge)
-        tariff_rate.minimum_tariff = data.get('minimum_tariff', tariff_rate.minimum_tariff)
-        tariff_rate.maximum_tariff = data.get('maximum_tariff', tariff_rate.maximum_tariff)
-        tariff_rate.currency = data.get('currency', tariff_rate.currency)
-        tariff_rate.is_active = data.get('is_active', tariff_rate.is_active)
-        tariff_rate.notes = data.get('notes', tariff_rate.notes)
-        tariff_rate.updated_at = datetime.now()
-        
+        # Single commit
         db.session.commit()
         
         return jsonify({
             'message': 'Tariff rate updated successfully',
-            'tariff_rate': tariff_rate.to_dict()
+            'tariff_rate': updated_rate.to_dict()
         })
         
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': f'Invalid data format: {str(e)}'}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/tariff-rates/<int:rate_id>', methods=['DELETE'])
 def delete_tariff_rate(rate_id):
-    """Delete a tariff rate (soft delete by setting is_active=False)"""
+    """Delete a tariff rate (hard delete - actually remove from database)"""
     try:
         tariff_rate = TariffRate.query.get(rate_id)
         if not tariff_rate:
             return jsonify({'error': 'Tariff rate not found'}), 404
         
-        tariff_rate.is_active = False
-        tariff_rate.updated_at = datetime.now()
+        # Check if this rate is being used in any processed shipments
+        base_usage_count = ProcessedShipment.query.filter_by(base_rate_id=rate_id).count()
+        surcharge_usage_count = ProcessedShipment.query.filter_by(surcharge_rate_id=rate_id).count()
+        total_usage = base_usage_count + surcharge_usage_count
         
+        if total_usage > 0:
+            return jsonify({
+                'error': f'Cannot delete: this tariff rate is referenced by {total_usage} processed shipments ({base_usage_count} as base rate, {surcharge_usage_count} as surcharge rate). Delete those shipments first or use deactivation instead.',
+                'usage_count': total_usage,
+                'base_usage_count': base_usage_count,
+                'surcharge_usage_count': surcharge_usage_count
+            }), 400
+        
+        # Actually delete the record from database
+        db.session.delete(tariff_rate)
         db.session.commit()
         
         return jsonify({
-            'message': 'Tariff rate deactivated successfully'
+            'message': 'Tariff rate deleted successfully'
         })
         
     except Exception as e:
@@ -2226,7 +2261,7 @@ def archive_rate(rate_id):
 
 @app.route('/tariff-rates/bulk-deactivate', methods=['POST'])
 def bulk_deactivate_rates():
-    """Bulk deactivate multiple tariff rates"""
+    """Bulk deactivate multiple tariff rates - Optimized version"""
     try:
         data = request.json or {}
         rate_ids = data.get('rate_ids', [])
@@ -2238,21 +2273,15 @@ def bulk_deactivate_rates():
                 'error': 'rate_ids must be provided as a non-empty list'
             }), 400
         
-        rates = TariffRate.query.filter(TariffRate.id.in_(rate_ids)).all()
-        
-        if len(rates) != len(rate_ids):
-            return jsonify({
-                'success': False,
-                'error': 'Some rate IDs were not found'
-            }), 404
-        
-        updated_count = 0
-        for rate in rates:
-            if rate.is_active:
-                rate.is_active = False
-                rate.notes = f"{rate.notes or ''}\n[BULK DEACTIVATED] {reason}".strip()
-                rate.updated_at = datetime.utcnow()
-                updated_count += 1
+        # Use bulk update instead of individual updates
+        updated_count = db.session.query(TariffRate).filter(
+            TariffRate.id.in_(rate_ids),
+            TariffRate.is_active == True
+        ).update({
+            'is_active': False,
+            'notes': db.func.coalesce(TariffRate.notes, '') + f'\n[BULK DEACTIVATED] {reason}',
+            'updated_at': datetime.utcnow()
+        }, synchronize_session=False)
         
         db.session.commit()
         
@@ -2260,13 +2289,254 @@ def bulk_deactivate_rates():
             'success': True,
             'message': f'Bulk deactivated {updated_count} tariff rates',
             'updated_count': updated_count,
-            'total_processed': len(rates)
+            'total_requested': len(rate_ids)
         })
     except Exception as e:
         db.session.rollback()
         return jsonify({
             'success': False,
             'error': str(e)
+        }), 500
+
+@app.route('/tariff-rates/bulk-delete', methods=['DELETE'])
+def bulk_delete_rates():
+    """Bulk delete multiple tariff rates - Hard delete from database"""
+    try:
+        data = request.json or {}
+        rate_ids = data.get('rate_ids', [])
+        force_delete = data.get('force_delete', False)
+        reason = data.get('reason', 'Bulk deletion')
+        
+        if not isinstance(rate_ids, list) or not rate_ids:
+            return jsonify({
+                'success': False,
+                'error': 'rate_ids must be provided as a non-empty list'
+            }), 400
+        
+        # Find the rates to be deleted
+        rates_to_delete = TariffRate.query.filter(TariffRate.id.in_(rate_ids)).all()
+        
+        if not rates_to_delete:
+            return jsonify({
+                'success': False,
+                'error': 'No valid tariff rates found with the provided IDs'
+            }), 404
+        
+        # Check usage in processed shipments (unless force delete)
+        usage_errors = []
+        rates_with_usage = []
+        rates_safe_to_delete = []
+        
+        for rate in rates_to_delete:
+            base_usage = ProcessedShipment.query.filter_by(base_rate_id=rate.id).count()
+            surcharge_usage = ProcessedShipment.query.filter_by(surcharge_rate_id=rate.id).count()
+            total_usage = base_usage + surcharge_usage
+            
+            if total_usage > 0 and not force_delete:
+                rates_with_usage.append({
+                    'id': rate.id,
+                    'route': f"{rate.origin_country} → {rate.destination_country}",
+                    'category': rate.goods_category,
+                    'usage_count': total_usage,
+                    'base_usage': base_usage,
+                    'surcharge_usage': surcharge_usage
+                })
+            else:
+                rates_safe_to_delete.append(rate)
+        
+        # If there are rates with usage and not forcing delete, return error
+        if rates_with_usage and not force_delete:
+            return jsonify({
+                'success': False,
+                'error': f'Cannot delete {len(rates_with_usage)} rates that are referenced by processed shipments',
+                'rates_with_usage': rates_with_usage,
+                'suggestion': 'Use force_delete=true to override, or consider deactivating instead',
+                'deletable_count': len(rates_safe_to_delete),
+                'blocked_count': len(rates_with_usage)
+            }), 400
+        
+        # Delete the rates
+        deleted_rates = []
+        deleted_count = 0
+        
+        for rate in (rates_safe_to_delete if not force_delete else rates_to_delete):
+            deleted_rates.append({
+                'id': rate.id,
+                'route': f"{rate.origin_country} → {rate.destination_country}",
+                'category': rate.goods_category,
+                'postal_service': rate.postal_service,
+                'tariff_rate': float(rate.tariff_rate),
+                'deleted_reason': reason
+            })
+            
+            db.session.delete(rate)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        response = {
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} tariff rates',
+            'deleted_count': deleted_count,
+            'total_requested': len(rate_ids),
+            'deleted_rates': deleted_rates,
+            'force_delete_used': force_delete
+        }
+        
+        if rates_with_usage and force_delete:
+            # Calculate count of force-deleted rates that had usage
+            force_deleted_with_usage_count = len([r for r in rates_to_delete if any(r.id == u['id'] for u in rates_with_usage)])
+            response['warning'] = f'Force deleted {force_deleted_with_usage_count} rates that had shipment references'
+            response['rates_had_usage'] = rates_with_usage
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Bulk deletion failed: {str(e)}'
+        }), 500
+
+@app.route('/tariff-routes/bulk-delete', methods=['DELETE']) 
+def bulk_delete_routes():
+    """Bulk delete all rates for multiple routes (origin → destination combinations)"""
+    try:
+        data = request.json or {}
+        routes = data.get('routes', [])
+        force_delete = data.get('force_delete', False)
+        reason = data.get('reason', 'Bulk route deletion')
+        
+        if not isinstance(routes, list) or not routes:
+            return jsonify({
+                'success': False,
+                'error': 'routes must be provided as a non-empty list of "origin → destination" strings'
+            }), 400
+        
+        # Parse routes and find all rates for these routes
+        route_filters = []
+        parsed_routes = []
+        
+        for route in routes:
+            if ' → ' in route:
+                origin, destination = route.split(' → ', 1)
+                route_filters.append(
+                    db.and_(
+                        TariffRate.origin_country == origin.strip(),
+                        TariffRate.destination_country == destination.strip()
+                    )
+                )
+                parsed_routes.append({'origin': origin.strip(), 'destination': destination.strip()})
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid route format: "{route}". Expected format: "Origin → Destination"'
+                }), 400
+        
+        # Find all rates for these routes
+        if route_filters:
+            rates_query = TariffRate.query.filter(db.or_(*route_filters))
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No valid routes provided'
+            }), 400
+        
+        rates_to_delete = rates_query.all()
+        
+        if not rates_to_delete:
+            return jsonify({
+                'success': True,
+                'message': 'No tariff rates found for the specified routes',
+                'deleted_count': 0,
+                'routes_processed': len(parsed_routes)
+            })
+        
+        # Group rates by route for reporting
+        routes_summary = {}
+        usage_errors = []
+        rates_safe_to_delete = []
+        total_usage_count = 0
+        
+        for rate in rates_to_delete:
+            route_key = f"{rate.origin_country} → {rate.destination_country}"
+            
+            if route_key not in routes_summary:
+                routes_summary[route_key] = {
+                    'rate_count': 0,
+                    'categories': set(),
+                    'services': set(),
+                    'usage_count': 0,
+                    'rate_ids': []
+                }
+            
+            # Check usage
+            base_usage = ProcessedShipment.query.filter_by(base_rate_id=rate.id).count()
+            surcharge_usage = ProcessedShipment.query.filter_by(surcharge_rate_id=rate.id).count()
+            rate_usage = base_usage + surcharge_usage
+            
+            routes_summary[route_key]['rate_count'] += 1
+            routes_summary[route_key]['categories'].add(rate.goods_category)
+            routes_summary[route_key]['services'].add(rate.postal_service)
+            routes_summary[route_key]['usage_count'] += rate_usage
+            routes_summary[route_key]['rate_ids'].append(rate.id)
+            total_usage_count += rate_usage
+            
+            if rate_usage > 0 and not force_delete:
+                usage_errors.append({
+                    'rate_id': rate.id,
+                    'route': route_key,
+                    'category': rate.goods_category,
+                    'usage_count': rate_usage
+                })
+            else:
+                rates_safe_to_delete.append(rate)
+        
+        # Convert sets to lists for JSON serialization
+        for route_info in routes_summary.values():
+            route_info['categories'] = list(route_info['categories'])
+            route_info['services'] = list(route_info['services'])
+        
+        # If there are rates with usage and not forcing delete, return error
+        if usage_errors and not force_delete:
+            return jsonify({
+                'success': False,
+                'error': f'Cannot delete routes: {len(usage_errors)} rates are referenced by processed shipments',
+                'total_usage_count': total_usage_count,
+                'routes_summary': routes_summary,
+                'rates_with_usage': len(usage_errors),
+                'suggestion': 'Use force_delete=true to override, or consider deactivating instead'
+            }), 400
+        
+        # Delete all rates for these routes
+        deleted_count = 0
+        for rate in (rates_safe_to_delete if not force_delete else rates_to_delete):
+            db.session.delete(rate)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        response = {
+            'success': True,
+            'message': f'Successfully deleted all rates for {len(parsed_routes)} routes ({deleted_count} total rates)',
+            'deleted_count': deleted_count,
+            'routes_processed': len(parsed_routes),
+            'routes_summary': routes_summary,
+            'force_delete_used': force_delete,
+            'deletion_reason': reason
+        }
+        
+        if usage_errors and force_delete:
+            response['warning'] = f'Force deleted {len(usage_errors)} rates that had shipment references'
+            response['total_usage_overridden'] = total_usage_count
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Bulk route deletion failed: {str(e)}'
         }), 500
 
 # ==================== SURCHARGE MANAGEMENT ENDPOINTS ====================
@@ -2403,148 +2673,195 @@ def calculate_enhanced_tariff():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/tariff-rates/bulk', methods=['POST'])
-def create_bulk_tariff_rates():
-    """Create multiple tariff rates at once for different categories"""
+@app.route('/tariff-rates/check-route', methods=['POST'])
+def check_route_consolidation():
+    """Check if a route exists and show its structure"""
     try:
         data = request.json or {}
         
-        # Common route and configuration fields
         origin = data.get('origin_country')
         destination = data.get('destination_country')
         postal_service = data.get('postal_service', '*')
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
-        min_weight = data.get('min_weight', 0.0)
-        max_weight = data.get('max_weight', 999999.0)
-        minimum_tariff = data.get('minimum_tariff', 0.0)
-        maximum_tariff = data.get('maximum_tariff')
-        currency = data.get('currency', 'USD')
-        notes = data.get('notes', '')
-        
-        # Category configurations - only category-specific rates
-        category_rates = data.get('category_rates', [])  # List of {category, rate}
         
         if not origin or not destination:
+            return jsonify({'error': 'Origin and destination required'}), 400
+        
+        # Find all rates for this route
+        rates = TariffRate.query.filter_by(
+            origin_country=origin,
+            destination_country=destination,
+            postal_service=postal_service,
+            is_active=True
+        ).order_by(TariffRate.start_date.desc()).all()
+        
+        route_structure = {
+            'route': f"{origin} → {destination}",
+            'postal_service': postal_service,
+            'total_rates': len(rates),
+            'rates_by_category': {},
+            'has_wildcard_rate': False,
+            'has_category_specific_rates': False
+        }
+        
+        for rate in rates:
+            category = rate.goods_category
+            
+            if category == '*':
+                route_structure['has_wildcard_rate'] = True
+            else:
+                route_structure['has_category_specific_rates'] = True
+            
+            if category not in route_structure['rates_by_category']:
+                route_structure['rates_by_category'][category] = []
+            
+            route_structure['rates_by_category'][category].append({
+                'id': rate.id,
+                'rate': float(rate.tariff_rate),
+                'start_date': rate.start_date.isoformat(),
+                'end_date': rate.end_date.isoformat(),
+                'weight_range': f"{rate.min_weight}-{rate.max_weight}kg",
+                'notes': rate.notes,
+                'created_at': rate.created_at.isoformat()
+            })
+        
+        return jsonify({
+            'success': True,
+            'route_structure': route_structure,
+            'recommendation': 'Use wildcard (*) rates for unified route management' if route_structure['has_category_specific_rates'] else 'Route properly consolidated'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Check failed: {str(e)}'}), 500
+
+
+@app.route('/tariff-rates/bulk', methods=['POST'])
+def create_bulk_tariff_rates():
+    """Create single consolidated tariff rate per route - Fixed version"""
+    try:
+        data = request.json or {}
+        
+        # Check if this is a single-rate request (no category_rates array)
+        if 'category_rates' not in data or not data.get('category_rates'):
+            # Single rate creation - use the existing single rate endpoint
+            return create_single_tariff_rate()
+        
+        # Common route and configuration fields
+        base_data = {
+            'origin_country': data.get('origin_country'),
+            'destination_country': data.get('destination_country'),
+            'postal_service': data.get('postal_service', '*'),
+            'start_date': data.get('start_date'),
+            'end_date': data.get('end_date'),
+            'min_weight': data.get('min_weight', 0.0),
+            'max_weight': data.get('max_weight', 999999.0),
+            'minimum_tariff': data.get('minimum_tariff', 0.0),
+            'maximum_tariff': data.get('maximum_tariff'),
+            'currency': data.get('currency', 'USD'),
+            'notes': data.get('notes', '')
+        }
+        
+        category_rates = data.get('category_rates', [])
+        
+        if not base_data['origin_country'] or not base_data['destination_country']:
             return jsonify({'error': 'Origin and destination countries are required'}), 400
             
         if not category_rates:
             return jsonify({'error': 'At least one category rate is required'}), 400
         
-        # Parse dates
-        from datetime import datetime, date
-        if start_date:
-            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-        else:
-            start_date = date.today()
+        # Validate base data once
+        temp_data = base_data.copy()
+        temp_data['tariff_rate'] = 0.0  # Dummy value for validation
+        temp_data['goods_category'] = '*'  # Dummy value for validation
         
-        if end_date:
-            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-        else:
-            end_date = date(2099, 12, 31)
+        validated_base, error = _validate_tariff_rate_data(temp_data)
+        if error:
+            return jsonify(validated_base), error
         
-        if start_date >= end_date:
-            return jsonify({'error': 'Start date must be before end date'}), 400
+        # NEW APPROACH: Create a single consolidated route
+        # Calculate a weighted average rate based on all categories provided
+        total_rate = 0.0
+        rate_count = len([r for r in category_rates if r.get('category') != '*'])
         
-        created_rates = []
-        errors = []
-        
-        # Create category-specific rates only
         for config in category_rates:
-            try:
-                goods_category = config.get('category', '*')
-                category_rate = float(config.get('rate', 0.0))
-                
-                if goods_category == '*':
-                    continue  # Skip wildcard category here, handled above
-                
-                # Check for overlapping date ranges (not exact matches)
-                overlapping_rates = TariffRate.check_overlapping_rates(
-                    origin, destination, goods_category, postal_service, 
-                    start_date, end_date
-                )
-                
-                has_date_conflict = False
-                if overlapping_rates:
-                    # Check if any overlapping rate has the same weight range
-                    for overlap_rate in overlapping_rates:
-                        if (overlap_rate.min_weight == min_weight and 
-                            overlap_rate.max_weight == max_weight):
-                            errors.append(
-                                f"Date range conflict for {goods_category}: "
-                                f"overlaps with existing rate from {overlap_rate.start_date} to {overlap_rate.end_date}. "
-                                f"Please adjust the existing rate or choose non-overlapping dates."
-                            )
-                            has_date_conflict = True
-                            break
-                
-                if not has_date_conflict:
-                    # Check for exact match to update existing rate (same route, category, dates, and weight range)
-                    existing_rate = TariffRate.query.filter_by(
-                        origin_country=origin,
-                        destination_country=destination,
-                        goods_category=goods_category,
-                        postal_service=postal_service,
-                        start_date=start_date,
-                        end_date=end_date,
-                        min_weight=min_weight,
-                        max_weight=max_weight
-                    ).first()
-                
-                    if existing_rate:
-                        # Update existing category rate
-                        existing_rate.tariff_rate = category_rate
-                        existing_rate.category_surcharge = 0.0  # Not used anymore
-                        existing_rate.minimum_tariff = minimum_tariff
-                        existing_rate.maximum_tariff = maximum_tariff
-                        existing_rate.currency = currency
-                        existing_rate.notes = f"{notes} (Category rate updated via bulk)"
-                        existing_rate.updated_at = datetime.now()
-                        created_rates.append(existing_rate.to_dict())
-                    else:
-                        # Create new category rate - no constraint checking since we removed unique constraints
-                        new_rate = TariffRate()
-                        new_rate.origin_country = origin
-                        new_rate.destination_country = destination
-                        new_rate.goods_category = goods_category
-                        new_rate.postal_service = postal_service
-                        new_rate.start_date = start_date
-                        new_rate.end_date = end_date
-                        new_rate.min_weight = min_weight
-                        new_rate.max_weight = max_weight
-                        new_rate.tariff_rate = category_rate
-                        new_rate.category_surcharge = 0.0  # Not used anymore
-                        new_rate.minimum_tariff = minimum_tariff
-                        new_rate.maximum_tariff = maximum_tariff
-                        new_rate.currency = currency
-                        new_rate.is_active = True
-                        new_rate.notes = f"{notes} (Category rate created via bulk)"
-                        
-                        db.session.add(new_rate)
-                        created_rates.append({
-                            'goods_category': goods_category,
-                            'tariff_rate': category_rate,
-                            'category_surcharge': 0.0,
-                            'effective_rate': category_rate
-                        })
-                    
-            except Exception as e:
-                errors.append(f"Failed to create rate for {config.get('category', 'Unknown')}: {str(e)}")
+            category_rate = float(config.get('rate', 0.0))
+            total_rate += category_rate
         
-        # Commit all changes
+        # Use the average rate or the first rate if only one category
+        if rate_count > 0:
+            consolidated_rate = total_rate / rate_count
+        else:
+            consolidated_rate = total_rate
+        
+        # Create a single route record with wildcard category (applies to all)
+        route_data = validated_base.copy()
+        route_data['goods_category'] = '*'  # Wildcard means this rate applies to ALL categories
+        route_data['tariff_rate'] = consolidated_rate
+        route_data['category_surcharge'] = 0.0
+        
+        # Create notes that show which categories were consolidated
+        category_names = [config.get('category', 'Unknown') for config in category_rates if config.get('category') != '*']
+        route_data['notes'] = f"{base_data['notes']} (Consolidated rate for: {', '.join(category_names)})"
+        
+        # Check for existing exact match for this route
+        existing_route = TariffRate.query.filter_by(
+            origin_country=route_data['origin'],
+            destination_country=route_data['destination'],
+            goods_category=route_data['goods_category'],  # '*' wildcard
+            postal_service=route_data['postal_service'],
+            start_date=route_data['start_date'],
+            end_date=route_data['end_date'],
+            min_weight=route_data['min_weight'],
+            max_weight=route_data['max_weight']
+        ).first()
+        
+        # Check for conflicts only if not updating exact match
+        if not existing_route:
+            conflict_result, conflict_error = _check_rate_conflicts(route_data)
+            if conflict_error:
+                return jsonify(conflict_result), conflict_error
+        
+        # Create or update the single consolidated route
+        route, is_new = _create_or_update_rate(route_data, existing_route)
+        
+        # If there are existing category-specific rates for this route with the same date range,
+        # we should deactivate them since we're now using a consolidated approach
+        old_category_rates = TariffRate.query.filter(
+            TariffRate.origin_country == route_data['origin'],
+            TariffRate.destination_country == route_data['destination'],
+            TariffRate.postal_service == route_data['postal_service'],
+            TariffRate.start_date == route_data['start_date'],
+            TariffRate.end_date == route_data['end_date'],
+            TariffRate.min_weight == route_data['min_weight'],
+            TariffRate.max_weight == route_data['max_weight'],
+            TariffRate.goods_category != '*',  # Not wildcard
+            TariffRate.is_active == True
+        ).all()
+        
+        deactivated_count = 0
+        if old_category_rates:
+            for old_rate in old_category_rates:
+                old_rate.is_active = False
+                old_rate.notes = f"{old_rate.notes or ''}\n[AUTO-DEACTIVATED] Replaced by consolidated route rate".strip()
+                old_rate.updated_at = datetime.now()
+                deactivated_count += 1
+        
+        # Single commit for all operations
         db.session.commit()
         
         return jsonify({
             'success': True,
-            'message': f'Successfully created/updated {len(created_rates)} tariff rates',
-            'created_rates': created_rates,
-            'total_created': len(created_rates),
-            'errors': errors if errors else None
+            'message': f'Consolidated route rate {"created" if is_new else "updated"} successfully',
+            'route': route.to_dict(),
+            'consolidated_categories': category_names,
+            'consolidated_rate': consolidated_rate,
+            'deactivated_old_rates': deactivated_count,
+            'mode': 'single_consolidated_route',
+            'note': 'This single rate now applies to all categories for this route'
         })
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Bulk operation failed: {str(e)}'}), 500
 
 # ==================== FILE HISTORY ENDPOINTS ====================
 
