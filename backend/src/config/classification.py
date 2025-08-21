@@ -25,16 +25,6 @@ CATEGORY_MAPPINGS = {
         'hat', 'cap', 'glove', 'scarf', 'fabric', 'textile', 'cotton',
         'wool', 'silk', 'polyester', 'leather', 'denim'
     ],
-    'Personal Care & Cosmetics': [
-        'cosmetic', 'makeup', 'lipstick', 'foundation', 'mascara', 'perfume',
-        'cologne', 'shampoo', 'conditioner', 'soap', 'lotion', 'cream',
-        'skincare', 'moisturizer', 'sunscreen', 'toothpaste', 'deodorant'
-    ],
-    'Pharmaceuticals': [
-        'medicine', 'pharmaceutical', 'drug', 'medical', 'pill', 'tablet',
-        'capsule', 'syrup', 'injection', 'vaccine', 'antibiotic', 'vitamin',
-        'supplement', 'prescription', 'otc', 'over the counter'
-    ],
     'Food & Beverages': [
         'food', 'snack', 'chocolate', 'candy', 'cookie', 'biscuit', 'tea',
         'coffee', 'drink', 'beverage', 'juice', 'wine', 'alcohol', 'spice',
@@ -44,10 +34,6 @@ CATEGORY_MAPPINGS = {
         'book', 'magazine', 'newspaper', 'journal', 'novel', 'textbook',
         'cd', 'dvd', 'blu-ray', 'music', 'movie', 'film', 'video', 'game'
     ],
-    'Toys & Games': [
-        'toy', 'doll', 'puzzle', 'game', 'board game', 'card game', 'lego',
-        'action figure', 'stuffed animal', 'teddy bear', 'ball', 'bike'
-    ],
     'Jewelry & Accessories': [
         'jewelry', 'jewellery', 'necklace', 'bracelet', 'ring', 'earring',
         'watch', 'chain', 'pendant', 'diamond', 'gold', 'silver', 'pearl'
@@ -55,10 +41,6 @@ CATEGORY_MAPPINGS = {
     'Home & Garden': [
         'furniture', 'chair', 'table', 'bed', 'sofa', 'lamp', 'mirror',
         'vase', 'plant', 'seed', 'tool', 'hammer', 'screwdriver', 'paint'
-    ],
-    'Sports & Fitness': [
-        'sport', 'fitness', 'exercise', 'gym', 'ball', 'racket', 'golf',
-        'tennis', 'basketball', 'football', 'soccer', 'running', 'yoga'
     ],
     'General Merchandise': [
         'merchandise', 'general', 'item', 'product', 'goods', 'misc',

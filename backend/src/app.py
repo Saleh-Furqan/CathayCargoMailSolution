@@ -968,7 +968,7 @@ def _validate_tariff_rate_data(data):
     return {
         'origin': origin,
         'destination': destination,
-        'goods_category': data.get('goods_category', '*'),
+        'goods_category': data.get('goods_category'),  # Allow None for bulk rates
         'postal_service': data.get('postal_service', '*'),
         'start_date': start_date,
         'end_date': end_date,
@@ -1043,13 +1043,11 @@ def _create_or_update_rate(validated_data, existing_rate=None):
 
 @app.route('/tariff-rates/single', methods=['POST'])
 def create_single_tariff_rate():
-    """Create a single tariff rate that applies to all categories for a route"""
+    """Create a single tariff rate for a specific category"""
     try:
         data = request.json or {}
         
-        # Validate input data - force goods_category to '*' for single rates
-        data['goods_category'] = '*'  # Wildcard means applies to all categories
-        
+        # Validate input data
         validated_data, error = _validate_tariff_rate_data(data)
         if error:
             return jsonify(validated_data), error
@@ -1058,7 +1056,7 @@ def create_single_tariff_rate():
         existing_rate = TariffRate.query.filter_by(
             origin_country=validated_data['origin'],
             destination_country=validated_data['destination'],
-            goods_category=validated_data['goods_category'],  # This will be '*'
+            goods_category=validated_data['goods_category'],
             postal_service=validated_data['postal_service'],
             start_date=validated_data['start_date'],
             end_date=validated_data['end_date'],
@@ -2736,7 +2734,7 @@ def check_route_consolidation():
 
 @app.route('/tariff-rates/bulk', methods=['POST'])
 def create_bulk_tariff_rates():
-    """Create single consolidated tariff rate per route - Fixed version"""
+    """Create single tariff rate with multiple category rates stored as JSON"""
     try:
         data = request.json or {}
         
@@ -2770,93 +2768,86 @@ def create_bulk_tariff_rates():
         
         # Validate base data once
         temp_data = base_data.copy()
-        temp_data['tariff_rate'] = 0.0  # Dummy value for validation
-        temp_data['goods_category'] = '*'  # Dummy value for validation
+        temp_data['tariff_rate'] = 0.0  # Will be overridden
+        temp_data['goods_category'] = None  # No single category
         
         validated_base, error = _validate_tariff_rate_data(temp_data)
         if error:
             return jsonify(validated_base), error
         
-        # NEW APPROACH: Create a single consolidated route
-        # Calculate a weighted average rate based on all categories provided
-        total_rate = 0.0
-        rate_count = len([r for r in category_rates if r.get('category') != '*'])
+        # Process category rates into JSON format
+        category_rates_dict = {}
+        errors = []
         
         for config in category_rates:
+            category = config.get('category')
             category_rate = float(config.get('rate', 0.0))
-            total_rate += category_rate
+            
+            if not category or category_rate <= 0:
+                errors.append(f"Invalid category or rate for {category}")
+                continue
+                
+            category_rates_dict[category] = category_rate
         
-        # Use the average rate or the first rate if only one category
-        if rate_count > 0:
-            consolidated_rate = total_rate / rate_count
-        else:
-            consolidated_rate = total_rate
+        if not category_rates_dict:
+            return jsonify({'error': 'No valid category rates provided'}), 400
         
-        # Create a single route record with wildcard category (applies to all)
-        route_data = validated_base.copy()
-        route_data['goods_category'] = '*'  # Wildcard means this rate applies to ALL categories
-        route_data['tariff_rate'] = consolidated_rate
-        route_data['category_surcharge'] = 0.0
-        
-        # Create notes that show which categories were consolidated
-        category_names = [config.get('category', 'Unknown') for config in category_rates if config.get('category') != '*']
-        route_data['notes'] = f"{base_data['notes']} (Consolidated rate for: {', '.join(category_names)})"
-        
-        # Check for existing exact match for this route
-        existing_route = TariffRate.query.filter_by(
-            origin_country=route_data['origin'],
-            destination_country=route_data['destination'],
-            goods_category=route_data['goods_category'],  # '*' wildcard
-            postal_service=route_data['postal_service'],
-            start_date=route_data['start_date'],
-            end_date=route_data['end_date'],
-            min_weight=route_data['min_weight'],
-            max_weight=route_data['max_weight']
+        # Check for existing route with same parameters
+        existing_rate = TariffRate.query.filter_by(
+            origin_country=validated_base['origin'],
+            destination_country=validated_base['destination'],
+            postal_service=validated_base['postal_service'],
+            start_date=validated_base['start_date'],
+            end_date=validated_base['end_date'],
+            min_weight=validated_base['min_weight'],
+            max_weight=validated_base['max_weight']
         ).first()
         
-        # Check for conflicts only if not updating exact match
-        if not existing_route:
-            conflict_result, conflict_error = _check_rate_conflicts(route_data)
-            if conflict_error:
-                return jsonify(conflict_result), conflict_error
+        is_new = not existing_rate
         
-        # Create or update the single consolidated route
-        route, is_new = _create_or_update_rate(route_data, existing_route)
+        if existing_rate:
+            # Update existing record
+            existing_rate.category_rates = category_rates_dict
+            existing_rate.tariff_rate = list(category_rates_dict.values())[0]  # Use first rate as base
+            existing_rate.minimum_tariff = validated_base['minimum_tariff']
+            existing_rate.maximum_tariff = validated_base['maximum_tariff']
+            existing_rate.currency = validated_base['currency']
+            existing_rate.notes = validated_base['notes']
+            existing_rate.updated_at = datetime.now()
+            rate = existing_rate
+        else:
+            # Create new record
+            rate = TariffRate(
+                origin_country=validated_base['origin'],
+                destination_country=validated_base['destination'],
+                postal_service=validated_base['postal_service'],
+                start_date=validated_base['start_date'],
+                end_date=validated_base['end_date'],
+                min_weight=validated_base['min_weight'],
+                max_weight=validated_base['max_weight'],
+                minimum_tariff=validated_base['minimum_tariff'],
+                maximum_tariff=validated_base['maximum_tariff'],
+                currency=validated_base['currency'],
+                notes=validated_base['notes'],
+                category_rates=category_rates_dict,
+                tariff_rate=list(category_rates_dict.values())[0],  # Use first rate as base
+                goods_category=None,  # No single category
+                is_active=True
+            )
+            db.session.add(rate)
         
-        # If there are existing category-specific rates for this route with the same date range,
-        # we should deactivate them since we're now using a consolidated approach
-        old_category_rates = TariffRate.query.filter(
-            TariffRate.origin_country == route_data['origin'],
-            TariffRate.destination_country == route_data['destination'],
-            TariffRate.postal_service == route_data['postal_service'],
-            TariffRate.start_date == route_data['start_date'],
-            TariffRate.end_date == route_data['end_date'],
-            TariffRate.min_weight == route_data['min_weight'],
-            TariffRate.max_weight == route_data['max_weight'],
-            TariffRate.goods_category != '*',  # Not wildcard
-            TariffRate.is_active == True
-        ).all()
-        
-        deactivated_count = 0
-        if old_category_rates:
-            for old_rate in old_category_rates:
-                old_rate.is_active = False
-                old_rate.notes = f"{old_rate.notes or ''}\n[AUTO-DEACTIVATED] Replaced by consolidated route rate".strip()
-                old_rate.updated_at = datetime.now()
-                deactivated_count += 1
-        
-        # Single commit for all operations
+        # Single commit
         db.session.commit()
         
         return jsonify({
             'success': True,
-            'message': f'Consolidated route rate {"created" if is_new else "updated"} successfully',
-            'route': route.to_dict(),
-            'consolidated_categories': category_names,
-            'consolidated_rate': consolidated_rate,
-            'deactivated_old_rates': deactivated_count,
-            'mode': 'single_consolidated_route',
-            'note': 'This single rate now applies to all categories for this route'
+            'message': f'Successfully {"updated" if not is_new else "created"} route with {len(category_rates_dict)} category rates for {base_data["origin_country"]} → {base_data["destination_country"]}',
+            'total_created': 1 if is_new else 0,
+            'total_updated': 1 if not is_new else 0,
+            'rate': rate.to_dict(),
+            'errors': errors,
+            'mode': 'single_route_multiple_categories',
+            'category_rates': category_rates_dict
         })
         
     except Exception as e:

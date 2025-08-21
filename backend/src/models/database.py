@@ -16,8 +16,11 @@ class TariffRate(db.Model):
     destination_country = db.Column(db.String(100), nullable=False, index=True)  # Destination country/station
     
     # Enhanced tariff classification
-    goods_category = db.Column(db.String(100), default='*', index=True)  # Goods category (e.g., 'Documents', 'Merchandise', '*' for all)
+    goods_category = db.Column(db.String(100), default=None, index=True)  # Single category (for backward compatibility)
     postal_service = db.Column(db.String(100), default='*', index=True)  # Postal service (e.g., 'EMS', 'E-packet', '*' for all)
+    
+    # Multiple category rates in single row
+    category_rates = db.Column(db.JSON, default=lambda: {})  # JSON: {"Documents": 0.05, "Electronics": 0.08, "Merchandise": 0.12}
     
     # Date range for rate validity
     start_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now().date(), index=True)  # Rate validity start
@@ -28,8 +31,8 @@ class TariffRate(db.Model):
     max_weight = db.Column(db.Float, default=999999.0, index=True)  # Maximum weight for this rate
     
     # Tariff configuration
-    tariff_rate = db.Column(db.Float, default=0.8)  # Base tariff rate (e.g., 0.8 = 80%)
-    category_surcharge = db.Column(db.Float, default=0.0)  # Category-specific surcharge (e.g., 0.1 = +10%)
+    tariff_rate = db.Column(db.Float, default=0.8)  # Base tariff rate (for backward compatibility)
+    category_surcharge = db.Column(db.Float, default=0.0)  # Category-specific surcharge (for backward compatibility)
     minimum_tariff = db.Column(db.Float, default=0.0)  # Minimum tariff amount
     maximum_tariff = db.Column(db.Float, default=None)  # Maximum tariff amount (optional)
     
@@ -227,7 +230,8 @@ class TariffRate(db.Model):
             'maximum_tariff': self.maximum_tariff,
             'currency': self.currency,
             'is_active': self.is_active,
-            'notes': self.notes or ''
+            'notes': self.notes or '',
+            'category_rates': self.category_rates or {}
         }
     
     def calculate_tariff(self, declared_value):
@@ -249,32 +253,41 @@ class TariffRate(db.Model):
         return round(tariff_amount, 2)
     
     def get_effective_rate(self):
-        """Get the effective tariff rate (direct category rate)"""
+        """Get the effective tariff rate (backward compatibility)"""
         return self.tariff_rate
     
-    def is_base_rate(self):
-        """Check if this is a wildcard rate (goods_category = '*')"""
-        return self.goods_category == '*'
+    def has_category_rates(self):
+        """Check if this tariff has multiple category rates"""
+        return bool(self.category_rates and len(self.category_rates) > 0)
     
-    def is_surcharge_rate(self):
-        """Check if this is a category-specific rate (goods_category != '*')"""
-        return self.goods_category != '*'
+    def get_category_rate(self, category):
+        """Get the rate for a specific category"""
+        if self.category_rates and category in self.category_rates:
+            return self.category_rates[category]
+        return self.tariff_rate  # Fallback to base rate
+    
+    def get_all_categories(self):
+        """Get all categories in this tariff rate"""
+        if self.category_rates:
+            return list(self.category_rates.keys())
+        elif self.goods_category:
+            return [self.goods_category]
+        return []
     
     @staticmethod
-    def find_category_rate(origin, destination, goods_category, postal_service=None, ship_date=None, weight=None):
+    def find_route_rate(origin, destination, postal_service=None, ship_date=None, weight=None):
         """
-        Find the tariff rate for a specific category only (no wildcard fallback)
+        Find the tariff rate for a specific route (may contain multiple category rates)
         
         Args:
             origin: Origin country/station
             destination: Destination country/station
-            goods_category: Goods category (must be specific, not '*')
             postal_service: Postal service (optional, defaults to '*')
             ship_date: Shipment date (optional, defaults to today)
             weight: Package weight (optional, used for weight-based filtering)
         
         Returns:
-            TariffRate: Category rate or None
+            TariffRate: Route rate or None
         """
         from datetime import date
         
@@ -283,37 +296,33 @@ class TariffRate(db.Model):
         if postal_service is None:
             postal_service = '*'
         
-        # Only look for specific category rates (no wildcard fallback)
-        if not goods_category or goods_category == '*':
-            return None
-        
-        specific_query = TariffRate.query.filter(
+        # Look for route-based rates that may contain multiple categories
+        route_query = TariffRate.query.filter(
             TariffRate.origin_country == origin,
             TariffRate.destination_country == destination,
-            TariffRate.goods_category == goods_category,
             TariffRate.is_active == True,
             TariffRate.start_date <= ship_date,
             TariffRate.end_date >= ship_date
         )
         
         # Filter by postal service
-        specific_rates = [r for r in specific_query.all() 
-                         if r.postal_service in (postal_service, '*')]
+        route_rates = [r for r in route_query.all() 
+                      if r.postal_service in (postal_service, '*')]
         
         # Filter by weight if provided
-        if weight is not None and specific_rates:
-            weight_matches = [r for r in specific_rates 
+        if weight is not None and route_rates:
+            weight_matches = [r for r in route_rates 
                             if r.min_weight <= weight <= r.max_weight]
             if weight_matches:
-                specific_rates = weight_matches
+                route_rates = weight_matches
         
-        if specific_rates:
+        if route_rates:
             # Sort by specificity (most specific postal service first)
             def specificity_score(rate):
                 return 1 if rate.postal_service != '*' else 0
             
-            specific_rates.sort(key=specificity_score, reverse=True)
-            return specific_rates[0]
+            route_rates.sort(key=specificity_score, reverse=True)
+            return route_rates[0]
         
         return None
     
@@ -321,7 +330,7 @@ class TariffRate(db.Model):
     def calculate_tariff_for_shipment(origin, destination, declared_value, 
                                     goods_category=None, postal_service=None, ship_date=None, weight=None):
         """
-        Calculate tariff for a shipment using direct category-based rates only
+        Calculate tariff for a shipment using category rates within route records
         
         Returns:
             dict: {
@@ -339,44 +348,40 @@ class TariffRate(db.Model):
         if ship_date is None:
             ship_date = date.today()
         
-        # Require specific category (no wildcard)
-        if not goods_category or goods_category == '*':
-            return {
-                'tariff_amount': 0,
-                'rate_used': None,
-                'rate_percentage': 0,
-                'calculation_method': 'error',
-                'error': 'Specific goods category required for tariff calculation'
-            }
+        if ship_date is None:
+            ship_date = date.today()
         
-        # Find the appropriate rate for the category
-        rate_used = TariffRate.find_category_rate(origin, destination, goods_category, postal_service, ship_date, weight)
+        # Find the route rate record
+        route_rate = TariffRate.find_route_rate(origin, destination, postal_service, ship_date, weight)
         
-        if rate_used:
-            # Calculate tariff amount using the found rate
-            tariff_amount = declared_value * rate_used.tariff_rate
+        if route_rate:
+            # Get the specific category rate from the route record
+            category_rate = route_rate.get_category_rate(goods_category) if goods_category else route_rate.tariff_rate
+            
+            # Calculate tariff amount using the category-specific rate
+            tariff_amount = declared_value * category_rate
             
             # Apply minimum/maximum limits
-            if tariff_amount < rate_used.minimum_tariff:
-                tariff_amount = rate_used.minimum_tariff
-            if rate_used.maximum_tariff and tariff_amount > rate_used.maximum_tariff:
-                tariff_amount = rate_used.maximum_tariff
+            if tariff_amount < route_rate.minimum_tariff:
+                tariff_amount = route_rate.minimum_tariff
+            if route_rate.maximum_tariff and tariff_amount > route_rate.maximum_tariff:
+                tariff_amount = route_rate.maximum_tariff
             
             return {
                 'tariff_amount': round(tariff_amount, 2),
-                'rate_used': rate_used,
-                'rate_percentage': rate_used.tariff_rate,
-                'calculation_method': 'configured_category',
+                'rate_used': route_rate,
+                'rate_percentage': category_rate,
+                'calculation_method': 'configured_route',
                 'error': None
             }
         else:
-            # No fallback - return error
+            # No route found - return error
             return {
                 'tariff_amount': 0,
                 'rate_used': None,
                 'rate_percentage': 0,
                 'calculation_method': 'error',
-                'error': f'No tariff rate found for category "{goods_category}" from {origin} to {destination}'
+                'error': f'No tariff rate found for route from {origin} to {destination}'
             }
 
 class ProcessedShipment(db.Model):

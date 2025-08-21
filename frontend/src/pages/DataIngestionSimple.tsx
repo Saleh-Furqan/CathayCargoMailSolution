@@ -5,54 +5,17 @@ import {
   CheckCircle,
   AlertCircle,
   FileSpreadsheet,
-  BarChart3,
-  Building,
-  Plane,
 } from 'lucide-react';
-import { apiService, downloadBlob } from '../services/api';
-import Dashboard from '../components/Dashboard/Dashboard';
-import CBPSection from '../components/CBPSection/CBPSection';
-import ChinaPostSection from '../components/ChinaPostSection/ChinaPostSection';
+import { apiService } from '../services/api';
+import Notification from '../components/Notification/Notification';
 
 const DataIngestionSimple: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
-  const [activeTab, setActiveTab] = useState<'upload' | 'analytics' | 'cbd' | 'chinapost'>('upload');
-  const [processedData, setProcessedData] = useState<any[]>([]);
-  const [analyticsData, setAnalyticsData] = useState<any>(null);
-
-  const fetchProcessedData = async () => {
-    try {
-      console.log('Fetching processed data from database...');
-      // Get recent data from a wide date range to capture all processed data
-      const endDate = new Date().toISOString().split('T')[0];
-      const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Last 365 days
-      
-      const response = await apiService.getHistoricalData(startDate, endDate);
-      console.log('Processed data response:', response);
-      
-      // Store RAW database data - NO PROCESSING IN FRONTEND
-      setProcessedData(response.data || []);
-      console.log(`Loaded ${response.data?.length || 0} processed records from backend`);
-      return response.data || [];
-    } catch (error) {
-      console.error('Error fetching processed data:', error);
-      return [];
-    }
-  };
-
-  const fetchAnalyticsData = async () => {
-    try {
-      console.log('Fetching analytics data from backend...');
-      const response = await apiService.getAnalytics();
-      console.log('Analytics data response:', response);
-      setAnalyticsData(response);
-    } catch (error) {
-      console.error('Error fetching analytics data:', error);
-    }
-  };
+  const [activeTab, setActiveTab] = useState<'upload'>('upload');
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'warning' | 'info'} | null>(null);
 
   useEffect(() => {
     const checkBackend = async () => {
@@ -60,10 +23,6 @@ const DataIngestionSimple: React.FC = () => {
         await apiService.healthCheck();
         setIsBackendConnected(true);
         console.log('Backend connected successfully');
-        
-        // Load existing processed data and analytics
-        await fetchProcessedData();
-        await fetchAnalyticsData();
       } catch (error) {
         console.error('Backend connection failed:', error);
         setIsBackendConnected(false);
@@ -90,15 +49,11 @@ const DataIngestionSimple: React.FC = () => {
         console.log(`Total records: ${result.total_records}`);
         console.log(`New entries: ${result.new_entries}`);
         
-        // Fetch the processed data from backend (NO FRONTEND PROCESSING)
-        console.log('Fetching processed data from backend...');
-        await fetchProcessedData();
-        await fetchAnalyticsData();
-        
-        // Auto-switch to analytics tab after successful processing
-        setTimeout(() => {
-          setActiveTab('analytics');
-        }, 1000);
+        // Show success notification instead of redirecting
+        setNotification({
+          message: 'Data has been processed successfully! You can access reports from Historical Data section.',
+          type: 'success'
+        });
       }
       
     } catch (error) {
@@ -124,43 +79,8 @@ const DataIngestionSimple: React.FC = () => {
     multiple: false
   });
 
-  const handleGenerateChinaPost = async () => {
-    if (!processedData.length) {
-      alert('No processed data available. Please upload and process a file first.');
-      return;
-    }
-
-    try {
-      // Backend generates file directly - NO FRONTEND DATA SENT
-      const blob = await apiService.generateChinaPostFile();
-      downloadBlob(blob, `CHINAPOST_EXPORT_${Date.now()}.xlsx`);
-    } catch (error) {
-      console.error('Download error:', error);
-      alert('Error generating CHINAPOST export file');
-    }
-  };
-
-  const handleGenerateCBD = async () => {
-    if (!processedData.length) {
-      alert('No processed data available. Please upload and process a file first.');
-      return;
-    }
-
-    try {
-      // Backend generates file directly - NO FRONTEND DATA SENT
-      const blob = await apiService.generateCBDFile();
-      downloadBlob(blob, `CBD_EXPORT_${Date.now()}.xlsx`);
-    } catch (error) {
-      console.error('Download error:', error);
-      alert('Error generating CBD export file');
-    }
-  };
-
   const tabs = [
     { id: 'upload', name: 'Data Upload', icon: Upload },
-    { id: 'analytics', name: 'Analytics', icon: BarChart3, disabled: processedData.length === 0 },
-    { id: 'cbd', name: 'GOV Section', icon: Building, disabled: processedData.length === 0 },
-    { id: 'chinapost', name: 'Postal Service', icon: Plane, disabled: processedData.length === 0 },
   ];
 
   return (
@@ -171,7 +91,7 @@ const DataIngestionSimple: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">PS Data Processing System</h1>
           <div className="mt-1 flex items-center space-x-4">
             <p className="text-gray-600">
-              Complete workflow for processing PS raw data with IODA integration (Backend Processing)
+              Complete workflow for processing PS raw data with IODA integration.
             </p>
             <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium ${
               isBackendConnected 
@@ -185,12 +105,6 @@ const DataIngestionSimple: React.FC = () => {
             </div>
           </div>
         </div>
-        {processedData.length > 0 && (
-          <div className="text-sm text-gray-500">
-            <p>{processedData.length} records processed</p>
-            <p>Last updated: {new Date().toLocaleTimeString()}</p>
-          </div>
-        )}
       </div>
 
       {/* Tab Navigation */}
@@ -201,13 +115,10 @@ const DataIngestionSimple: React.FC = () => {
             return (
               <button
                 key={tab.id}
-                onClick={() => !tab.disabled && setActiveTab(tab.id as any)}
-                disabled={tab.disabled}
+                onClick={() => setActiveTab(tab.id as any)}
                 className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : tab.disabled
-                    ? 'border-transparent text-gray-400 cursor-not-allowed'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -334,27 +245,18 @@ const DataIngestionSimple: React.FC = () => {
                   </div>
                 )}
 
-                <div className="mt-4 space-x-3">
-                  <button
-                    onClick={handleGenerateChinaPost}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Download CHINAPOST Export
-                  </button>
-                  
-                  <button
-                    onClick={handleGenerateCBD}
-                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                  >
-                    Download GOV Export
-                  </button>
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm font-medium text-blue-900">Data Processing Complete!</p>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Your data has been processed and stored. Access analytics and download exports from the <strong>Historical Data section</strong>.
+                  </p>
                 </div>
               </div>
             )}
 
             {/* Information about workflow */}
             <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h3 className="text-sm font-semibold text-blue-900 mb-3">Correct PS Data Processing Workflow (Backend)</h3>
+              <h3 className="text-sm font-semibold text-blue-900 mb-3">PS Data Processing Workflow</h3>
               <div className="text-xs text-blue-800 space-y-2">
                 <p>• Upload the complete Excel file containing PS raw data</p>
                 <p>• Backend automatically extracts and processes the "Raw data provided by PS" sheet</p>
@@ -362,53 +264,20 @@ const DataIngestionSimple: React.FC = () => {
                 <p>• Backend performs tariff calculations (80% of declared value)</p>
                 <p>• Backend generates both POSTAL SERVICE EXPORT and GOV EXPORT formats</p>
                 <p>• All processed data is stored in the database for analytics and reporting</p>
-                <p>• Frontend displays backend-processed data only - no frontend calculations</p>
+                <p>• <strong>Access analytics and reports from the Historical Data section</strong></p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Analytics Tab - Uses backend-processed data only */}
-      {activeTab === 'analytics' && processedData.length > 0 && (
-        <Dashboard 
-          data={processedData}
-          analyticsData={analyticsData}
-          processResult={result || {
-            results: {
-              chinapost_export: { available: true, records_processed: processedData.length },
-              cbd_export: { available: true, records_processed: processedData.length }
-            },
-            total_records: processedData.length
-          }} 
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
         />
-      )}
-
-      {/* GOV Tab - Uses backend-processed data only */}
-      {activeTab === 'cbd' && processedData.length > 0 && (
-        <CBPSection 
-          data={processedData} 
-          onDownload={handleGenerateCBD}
-          isAvailable={true}
-        />
-      )}
-
-      {/* Postal Service Tab - Uses backend-processed data only */}
-      {activeTab === 'chinapost' && processedData.length > 0 && (
-        <ChinaPostSection 
-          data={processedData} 
-          onDownload={handleGenerateChinaPost}
-          isAvailable={true}
-        />
-      )}
-
-      {/* Empty state for disabled tabs */}
-      {(activeTab !== 'upload' && processedData.length === 0) && (
-        <div className="text-center py-16">
-          <FileSpreadsheet className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No processed data available</h3>
-          <p className="text-sm text-gray-500">Upload and process a PS data file to view analytics and reports.</p>
-        </div>
       )}
     </div>
   );

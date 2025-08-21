@@ -36,7 +36,7 @@ interface TariffRateConfig {
   id: number;
   origin_country: string;
   destination_country: string;
-  goods_category: string;
+  goods_category: string | null;
   postal_service: string;
   start_date: string;
   end_date: string;
@@ -51,6 +51,7 @@ interface TariffRateConfig {
   notes?: string;
   created_at: string;
   updated_at: string;
+  category_rates?: { [category: string]: number };  // New field for JSON category rates
 }
 
 interface CategoryConfig {
@@ -142,22 +143,23 @@ const TariffManagement: React.FC = () => {
     }
 
     try {
-      // Fetch all rates for this specific route and time period
-      const allRatesResponse = await apiService.getTariffRates();
-      const allRates = allRatesResponse.tariff_rates || [];
-      
-      // Filter rates for this specific route and time period
-      const routeRates = allRates.filter((rate: TariffRateConfig) => 
-        rate.origin_country === route.origin && 
-        rate.destination_country === route.destination &&
-        rate.start_date === route.configured_rate?.start_date &&
-        rate.end_date === route.configured_rate?.end_date
-      );
+      const configuredRate = route.configured_rate;
+      let categoryRates: { category: string; rate: number; }[] = [];
 
-      const categoryRates = routeRates.map((rate: TariffRateConfig) => ({
-        category: rate.goods_category,
-        rate: rate.tariff_rate
-      }));
+      // Handle new JSON format with category_rates
+      if (configuredRate.category_rates && Object.keys(configuredRate.category_rates).length > 0) {
+        categoryRates = Object.entries(configuredRate.category_rates).map(([category, rate]) => ({
+          category,
+          rate
+        }));
+      } 
+      // Handle old single-category format for backward compatibility
+      else if (configuredRate.goods_category && configuredRate.goods_category !== null) {
+        categoryRates = [{
+          category: configuredRate.goods_category,
+          rate: configuredRate.tariff_rate
+        }];
+      }
 
       setShowRateDetails({
         route,
@@ -303,50 +305,47 @@ const TariffManagement: React.FC = () => {
         enabled: false
       }));
     
-    // If there's an existing rate, fetch ONLY the rates for this specific time period
-    if (existing) {
-      try {
-        // Fetch all rates for this specific origin-destination-postal_service-date combination
-        const allRatesResponse = await apiService.getTariffRates();
-        const allRates = allRatesResponse.tariff_rates || [];
-        
-        // Filter rates for this SPECIFIC time period only
-        const periodRates = allRates.filter((rate: TariffRateConfig) => 
-          rate.origin_country === route.origin && 
-          rate.destination_country === route.destination &&
-          rate.postal_service === existing.postal_service &&
-          rate.start_date === existing.start_date &&
-          rate.end_date === existing.end_date
-        );
-        
-        // Update category configs with ONLY this period's rate values
-        categoryConfigs = availableCategories
-          .filter(cat => cat !== '*')
-          .map(category => {
-            // Find existing rate for this category in THIS period only
-            const existingCategoryRate = periodRates.find((rate: TariffRateConfig) => 
-              rate.goods_category === category
-            );
-            
-            if (existingCategoryRate) {
-              return {
-                category,
-                rate: existingCategoryRate.tariff_rate || 0,
-                enabled: true
-              };
-            } else {
-              return {
-                category,
-                rate: 0,
-                enabled: false
-              };
-            }
-          });
-        
-      } catch (error) {
-        console.error('Error loading existing category configurations:', error);
-        showNotification('Warning: Could not load existing category configurations', 'error');
-      }
+    // If there's an existing rate, load the category rates from the JSON field
+    if (existing && existing.category_rates) {
+      // Update category configs with category rates from JSON
+      categoryConfigs = availableCategories
+        .filter(cat => cat !== '*')
+        .map(category => {
+          const savedRate = existing.category_rates?.[category];
+          
+          if (savedRate !== undefined && savedRate > 0) {
+            return {
+              category,
+              rate: savedRate,
+              enabled: true
+            };
+          } else {
+            return {
+              category,
+              rate: 0,
+              enabled: false
+            };
+          }
+        });
+    } else if (existing && existing.goods_category) {
+      // Backward compatibility: handle old single-category format
+      categoryConfigs = availableCategories
+        .filter(cat => cat !== '*')
+        .map(category => {
+          if (category === existing.goods_category) {
+            return {
+              category,
+              rate: existing.tariff_rate || 0,
+              enabled: true
+            };
+          } else {
+            return {
+              category,
+              rate: 0,
+              enabled: false
+            };
+          }
+        });
     }
     
     // Set up bulk rate config with existing data if available
@@ -473,6 +472,19 @@ const TariffManagement: React.FC = () => {
       setSelectedRoutes(new Set(allRouteKeys));
     } else {
       setSelectedRoutes(new Set());
+    }
+  };
+
+  const handleCategorySelectAll = (checked: boolean) => {
+    if (bulkRateConfig) {
+      const newConfigs = bulkRateConfig.category_configs.map(config => ({
+        ...config,
+        enabled: checked
+      }));
+      setBulkRateConfig({
+        ...bulkRateConfig,
+        category_configs: newConfigs
+      });
     }
   };
 
@@ -698,69 +710,28 @@ const TariffManagement: React.FC = () => {
     if (!bulkRateConfig || !originalPeriodConfig) return;
     
     try {
-      const allRatesResponse = await apiService.getTariffRates();
-      const allRates = allRatesResponse.tariff_rates || [];
-      
-      // Find all rates for the original period
-      const originalPeriodRates = allRates.filter((rate: TariffRateConfig) => 
-        rate.origin_country === bulkRateConfig.origin && 
-        rate.destination_country === bulkRateConfig.destination &&
-        rate.postal_service === bulkRateConfig.postal_service &&
-        rate.start_date === originalPeriodConfig.start_date &&
-        rate.end_date === originalPeriodConfig.end_date
-      );
-      
+      // Use the new bulk endpoint for updating existing periods
       const enabledCategories = bulkRateConfig.category_configs.filter(config => config.enabled);
-      const disabledCategories = bulkRateConfig.category_configs.filter(config => !config.enabled);
       
-      // Check if dates are changing
-      const datesChanging = bulkRateConfig.start_date !== originalPeriodConfig.start_date || 
-                           bulkRateConfig.end_date !== originalPeriodConfig.end_date;
-      
-      // Step 1: Delete rates for categories that are now disabled
-      for (const disabledCategory of disabledCategories) {
-        const rateToDelete = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === disabledCategory.category);
-        if (rateToDelete) {
-          await apiService.deleteTariffRate(rateToDelete.id);
-        }
-      }
-      
-      // Step 2: Update or create rates for enabled categories
-      for (const enabledCategory of enabledCategories) {
-        const existingRate = originalPeriodRates.find((rate: TariffRateConfig) => rate.goods_category === enabledCategory.category);
-        
-        if (existingRate) {
-          // Always update the existing rate directly, whether dates are changing or not
-          await apiService.updateTariffRate(existingRate.id, {
-            start_date: bulkRateConfig.start_date,
-            end_date: bulkRateConfig.end_date,
-            min_weight: bulkRateConfig.min_weight,
-            max_weight: bulkRateConfig.max_weight,
-            tariff_rate: enabledCategory.rate,
-            minimum_tariff: bulkRateConfig.minimum_tariff,
-            maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
-            notes: `${bulkRateConfig.notes} (Updated via edit${datesChanging ? ' with date change' : ''})`,
-            is_active: true
-          });
-        } else {
-          // Create new rate for this category
-          await apiService.createTariffRate({
-            origin_country: bulkRateConfig.origin,
-            destination_country: bulkRateConfig.destination,
-            goods_category: enabledCategory.category,
-            postal_service: bulkRateConfig.postal_service,
-            start_date: bulkRateConfig.start_date,
-            end_date: bulkRateConfig.end_date,
-            min_weight: bulkRateConfig.min_weight,
-            max_weight: bulkRateConfig.max_weight,
-            tariff_rate: enabledCategory.rate,
-            minimum_tariff: bulkRateConfig.minimum_tariff,
-            maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
-            currency: 'USD',
-            notes: `${bulkRateConfig.notes} (Added via edit)`
-          });
-        }
-      }
+      const bulkData = {
+        origin_country: bulkRateConfig.origin,
+        destination_country: bulkRateConfig.destination,
+        postal_service: bulkRateConfig.postal_service,
+        start_date: bulkRateConfig.start_date,
+        end_date: bulkRateConfig.end_date,
+        min_weight: bulkRateConfig.min_weight,
+        max_weight: bulkRateConfig.max_weight,
+        minimum_tariff: bulkRateConfig.minimum_tariff,
+        maximum_tariff: bulkRateConfig.maximum_tariff > 0 ? bulkRateConfig.maximum_tariff : undefined,
+        currency: 'USD',
+        notes: `${bulkRateConfig.notes} (Updated via edit)`,
+        category_rates: enabledCategories.map(config => ({
+          category: config.category,
+          rate: config.rate
+        }))
+      };
+
+      const result = await apiService.createBulkTariffRates(bulkData);
       
       showNotification(
         `Successfully updated tariff rates for ${bulkRateConfig.origin} → ${bulkRateConfig.destination}`, 
@@ -1553,7 +1524,15 @@ const TariffManagement: React.FC = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Enabled
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                checked={bulkRateConfig?.category_configs.every(config => config.enabled) || false}
+                                onChange={(e) => handleCategorySelectAll(e.target.checked)}
+                                className="h-4 w-4 text-cathay-teal border-gray-300 rounded focus:ring-cathay-teal"
+                              />
+                              <span>Enabled</span>
+                            </div>
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Category
